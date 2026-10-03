@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CalorieTracker</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <h1>Calorie<span>Tracker</span></h1>
+
+  <div class="person-switch" id="person-switch">
+    <span class="ps-label">Person</span>
+    <select id="person-select" title="Everyone below shows this person"></select>
+    <button id="person-add" class="ghost small" title="Add a person">+</button>
+  </div>
+
+  <nav>
+    <button class="tab active" data-view="log">Log</button>
+    <button class="tab" data-view="foods">Database</button>
+    <button class="tab" data-view="people">People</button>
+    <button class="tab" data-view="predict">Predict</button>
+    <button class="tab" data-view="targets">Targets &amp; units</button>
+  </nav>
+
+  <div class="energy-toggle" title="Global energy unit used in summaries and logging">
+    <span>Show energy in</span>
+    <button class="unit-btn" data-unit="kj">kJ</button>
+    <button class="unit-btn" data-unit="kcal">kcal</button>
+  </div>
+</header>
+
+<div id="no-person-banner" class="banner" hidden>
+  No person yet. <a href="#" data-goto="people">Create one</a> to start tracking.
+</div>
+
+<main>
+  <!-- ------------------------------------------------------------ LOG -->
+  <section id="view-log" class="view active">
+    <div class="panel summary">
+      <div class="date-row">
+        <button id="prev-day" title="Previous day">&larr;</button>
+        <input type="date" id="log-date" />
+        <button id="next-day" title="Next day">&rarr;</button>
+        <button id="today-btn" class="ghost">Today</button>
+        <span class="who" id="log-who"></span>
+      </div>
+
+      <div class="energy-hero">
+        <div class="hero-numbers">
+          <div>
+            <span class="hero-value" id="energy-total">0</span>
+            <span class="hero-unit" id="energy-unit">kJ</span>
+          </div>
+          <div class="hero-target" id="energy-target"></div>
+        </div>
+        <div class="balance" id="balance-line"></div>
+        <div class="bar"><div class="bar-fill" id="energy-bar"></div></div>
+        <div class="macro-grid" id="macro-grid"></div>
+        <p class="hint" id="energy-hint"></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Add record</h2>
+      <div class="add-row">
+        <div class="search-wrap">
+          <input type="search" id="food-search" placeholder="Search foods and activities…" autocomplete="off" />
+          <ul id="search-results" class="results"></ul>
+        </div>
+        <select id="add-meal"></select>
+        <input type="number" id="add-amount" placeholder="Amount" step="any" min="0" />
+        <select id="add-unit">
+          <option value="g">g</option>
+          <option value="ml">ml</option>
+          <option value="piece">piece</option>
+        </select>
+        <button id="add-btn" class="primary">Log it</button>
+      </div>
+      <p class="hint" id="selected-hint">Pick something from the database first.</p>
+      <p class="hint" id="no-foods-hint" hidden>
+        Database is empty. Add a <a href="#" data-goto="foods">food</a> or an
+        <a href="#" data-goto="foods">activity</a>.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>Records</h2>
+      <div id="entry-list" class="entry-list"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------- DATABASE -->
+  <section id="view-foods" class="view">
+    <div class="panel">
+      <div class="kind-switch">
+        <button class="kind-btn active" data-kind="food">Foods</button>
+        <button class="kind-btn" data-kind="activity">Activities</button>
+        <span class="hint" id="kind-help"></span>
+      </div>
+
+      <h2 id="food-form-title">New food</h2>
+      <form id="food-form">
+        <input type="hidden" id="f-id" />
+        <div class="grid2">
+          <label>Name *<input id="f-name" required maxlength="200" /></label>
+          <label>Brand<input id="f-brand" maxlength="200" /></label>
+        </div>
+
+        <fieldset class="basis" id="basis-fields">
+          <legend>Values are per…</legend>
+          <div class="inline">
+            <input type="number" id="f-base-amount" value="100" step="any" min="0.01" required />
+            <span class="unit-word">g</span>
+            <span class="basis-note" id="basis-note"></span>
+          </div>
+        </fieldset>
+
+        <div class="grid2">
+          <label class="required">
+            <span id="energy-label">Gross energy *</span>
+            <span class="inline">
+              <input type="number" id="f-energy" step="any" required />
+              <select id="f-energy-unit">
+                <option value="kj">kJ</option>
+                <option value="kcal">kcal</option>
+              </select>
+            </span>
+          </label>
+          <label class="auto-from-macros" id="derive-row">
+            <button type="button" id="derive-energy" class="ghost">Estimate from macros</button>
+          </label>
+        </div>
+
+        <div class="grid3" id="macro-fields">
+          <label>Protein (g)<input type="number" id="f-protein" step="any" min="0" placeholder="optional" /></label>
+          <label>Carbs (g)<input type="number" id="f-carbs" step="any" min="0" placeholder="optional" /></label>
+          <label>Fat (g)<input type="number" id="f-fat" step="any" min="0" placeholder="optional" /></label>
+          <label>Sugar (g)<input type="number" id="f-sugar" step="any" min="0" placeholder="optional" /></label>
+          <label>Fiber (g)<input type="number" id="f-fiber" step="any" min="0" placeholder="optional" /></label>
+        </div>
+
+        <div class="grid2" id="mass-fields">
+          <label>Density (g per ml)<input type="number" id="f-g-per-ml" step="any" min="0.001" value="1" /></label>
+          <label>Grams per piece<input type="number" id="f-g-per-piece" step="any" min="0.001" placeholder="e.g. 50 for one egg" /></label>
+        </div>
+
+        <label>Notes<input id="f-notes" /></label>
+
+        <div class="form-actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="f-reset" class="ghost">Clear</button>
+        </div>
+        <p class="hint" id="form-msg"></p>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2 id="list-title">Your foods <span class="count" id="food-count"></span></h2>
+      <input type="search" id="food-list-search" placeholder="Filter…" />
+      <div class="table-wrap">
+        <table id="food-table">
+          <thead><tr id="food-thead"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------- PEOPLE -->
+  <section id="view-people" class="view">
+    <div class="panel">
+      <div class="person-head">
+        <h2 id="person-form-title">New person</h2>
+        <button id="p-new" class="ghost small">+ New person</button>
+      </div>
+      <form id="person-form">
+        <input type="hidden" id="p-id" />
+        <div class="grid3">
+          <label>Name *<input id="p-name" required maxlength="120" /></label>
+          <label>Date of birth *<input type="date" id="p-dob" required /></label>
+          <label>Height (cm) *<input type="number" id="p-height" step="any" min="50" max="300" required /></label>
+        </div>
+        <div class="grid3">
+          <label>Sex
+            <select id="p-sex">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other / not specified</option>
+            </select>
+          </label>
+          <label>BMR sex constant (kcal/day)
+            <input type="number" id="p-sex-offset" step="any" />
+          </label>
+          <label>Unlogged movement ×
+            <input type="number" id="p-activity" step="any" min="0.1" max="10" />
+          </label>
+        </div>
+        <p class="hint">
+          The sex constant is the +5 / −5 term in the Mifflin-St Jeor formula. It is
+          pre-filled from the sex you pick and stays editable.
+          <br />
+          <b>Unlogged movement</b> covers everything you burn that you did <i>not</i>
+          log as an activity: walking about, standing, fidgeting, digesting food.
+          It seeds the estimate until your own weight data replaces it, and it must
+          <i>not</i> include workouts — those are logged as activities with negative
+          energy, or they get counted twice.
+        </p>
+        <div class="form-actions">
+          <button type="submit" class="primary">Save person</button>
+          <button type="button" id="p-delete" class="ghost danger" hidden>Delete person</button>
+        </div>
+        <p class="hint" id="person-msg"></p>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Body metrics <span class="count" id="metric-who"></span></h2>
+      <div class="metric-grid" id="metric-grid"></div>
+      <div id="burn-compare" class="burn-compare"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Weight log</h2>
+      <div class="weight-row">
+        <input type="date" id="w-date" />
+        <input type="number" id="w-kg" step="any" min="20" max="700" placeholder="kg" />
+        <button id="w-add" class="primary">Record weight</button>
+        <span class="hint">One per day — recording again replaces it.</span>
+      </div>
+      <div id="weight-chart" class="chart"></div>
+      <div class="table-wrap">
+        <table id="weight-table">
+          <thead><tr><th>Date</th><th class="num">kg</th><th class="num">BMI</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------- PREDICT -->
+  <section id="view-predict" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Projection <span class="count" id="predict-who"></span></h2>
+        <div class="panel-actions">
+          <button id="fc-refresh" class="ghost">Recalculate</button>
+          <button id="fc-save" class="primary">Save this forecast</button>
+        </div>
+      </div>
+      <div id="fc-status" class="fc-status"></div>
+
+      <div class="chart-tabs">
+        <button class="ct active" data-series="weight">Weight</button>
+        <button class="ct" data-series="bmi">BMI</button>
+        <button class="ct" data-series="intake">Intake vs burn</button>
+      </div>
+      <div id="forecast-chart" class="chart"></div>
+      <div class="legend" id="forecast-legend"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Where this lands</h2>
+      <div class="table-wrap">
+        <table id="horizon-table">
+          <thead><tr>
+            <th>Horizon</th><th class="num">p05</th><th class="num">p25</th>
+            <th class="num">median</th><th class="num">p75</th><th class="num">p95</th>
+            <th class="num">median BMI</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">
+        Bands come from simulating realistic future intake, not from a random walk
+        on weight. <b>p05–p95</b> is where 90% of simulated futures land.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>Forecast archive</h2>
+      <p class="hint">
+        Every saved forecast is frozen with the parameters it was made from. Later,
+        each one is scored against what actually happened — so you can see whether
+        the model is actually getting better, not just whether the newest line
+        looks plausible.
+      </p>
+      <div id="scorecard" class="scorecard"></div>
+      <div class="table-wrap">
+        <table id="forecast-table">
+          <thead><tr>
+            <th>Show</th><th>Made on</th><th class="num">Burn used</th>
+            <th class="num">30-day med.</th><th class="num">90-day med.</th>
+            <th class="num">MAE</th><th class="num">Bias</th>
+            <th class="num">Within 1 kg</th><th class="num">In band</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------- TARGETS -->
+  <section id="view-targets" class="view">
+    <div class="panel">
+      <h2>Daily targets for <span id="targets-who"></span></h2>
+      <p class="hint">Leave a field empty to switch that metric off. Energy is entered in kJ.</p>
+      <div class="grid3" id="target-grid"></div>
+      <div class="form-actions"><button id="save-targets" class="primary">Save targets</button></div>
+      <p class="hint" id="targets-msg"></p>
+    </div>
+
+    <div class="panel">
+      <h2>Energy unit</h2>
+      <p>Used everywhere except the database editor, where each blueprint remembers the unit you typed it in.</p>
+      <div class="inline">
+        <button class="unit-btn" data-unit="kj">kJ</button>
+        <button class="unit-btn" data-unit="kcal">kcal</button>
+        <span class="hint">1 kcal = 4.184 kJ</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Model settings</h2>
+      <div class="grid3">
+        <label>Energy per kg of weight change (kJ)
+          <input type="number" id="s-kj-per-kg" step="any" min="1000" />
+        </label>
+        <label>Calibration window (days)
+          <input type="number" id="s-cal-days" step="1" min="7" max="365" />
+        </label>
+        <label>Simulation paths
+          <input type="number" id="s-paths" step="100" min="100" max="20000" />
+        </label>
+      </div>
+      <label>Intake lag kernel (weights on lag 0, 1, 2, 3 days)
+        <span class="inline">
+          <input type="number" id="s-lag0" step="any" min="0" />
+          <input type="number" id="s-lag1" step="any" min="0" />
+          <input type="number" id="s-lag2" step="any" min="0" />
+          <input type="number" id="s-lag3" step="any" min="0" />
+        </span>
+      </label>
+      <p class="hint">
+        The kernel exists because today's scale reflects the last few days of eating,
+        not just today. Values are normalised automatically. 7700 kcal/kg is the
+        conventional figure; lean tissue costs more per kg than fat does.
+      </p>
+      <div class="form-actions"><button id="save-model" class="primary">Save model settings</button></div>
+      <p class="hint" id="model-msg"></p>
+    </div>
+
+    <div class="panel">
+      <h2>Recent days <span class="count" id="history-who"></span></h2>
+      <div id="history" class="history"></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
