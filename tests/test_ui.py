@@ -107,9 +107,9 @@ def run():
 
         # ------------------------------------------------ 2. make a person
         page.click('[data-view="people"]')
-        page.fill("#p-name", "Kuro")
-        page.fill("#p-dob", "1996-04-15")
-        page.fill("#p-height", "180")
+        page.fill("#p-name", "Test Person")
+        page.fill("#p-dob", "1990-03-15")
+        page.fill("#p-height", "175")
         page.select_option("#p-sex", "male")
         offset = page.input_value("#p-sex-offset")
         assert offset == "5", f"sex offset should prefill +5, got {offset}"
@@ -124,7 +124,7 @@ def run():
             "() => document.querySelector('#person-select').value !== ''", timeout=15000)
         assert not page.is_visible("#no-person-banner")
         who = page.inner_text("#metric-who")
-        assert who == "Kuro", who
+        assert who == "Test Person", who
         print("PASS  person created, becomes the active selection everywhere")
 
         page.select_option("#p-sex", "female")
@@ -245,7 +245,7 @@ def run():
         assert page.inner_text("#log-who") == "for Guest"
         print("PASS  switching person shows their own empty day")
 
-        page.select_option("#person-select", label="Kuro")
+        page.select_option("#person-select", label="Test Person")
         page.wait_for_function(
             "() => document.querySelectorAll('.entry').length === 3")
         print("PASS  switching back restores the first person's records")
@@ -307,21 +307,21 @@ def run():
         assert "add a weight" in nostat.lower(), nostat
         print("PASS  no weight -> forecast refused with a reason:", nostat.strip())
 
-        page.select_option("#person-select", label="Kuro")
+        page.select_option("#person-select", label="Test Person")
         page.wait_for_timeout(500)
 
         # --------------------------------- 7. seed history and calibrate
         import app.db as dbmod
         from app import repo as R
         with dbmod.db() as conn:
-            kuro = [x for x in R.list_persons(conn) if x["name"] == "Kuro"][0]["id"]
+            p_one = [x for x in R.list_persons(conn) if x["name"] == "Test Person"][0]["id"]
             meal = [f for f in R.search_foods(conn, "Mixed meal")][0]["id"]
             gym = [f for f in R.search_foods(conn, "Gym session")][0]["id"]
-        seed_history(kuro, meal, gym)
+        seed_history(p_one, meal, gym)
         page.reload(wait_until="networkidle")
         page.wait_for_function(
             "() => document.querySelectorAll('#person-select option').length === 3")
-        page.select_option("#person-select", label="Kuro")
+        page.select_option("#person-select", label="Test Person")
         page.click('[data-view="people"]')
         page.wait_for_function(
             "() => !document.querySelector('#burn-compare').textContent.includes('Uncalibrated')",
@@ -435,7 +435,7 @@ def run():
         page.reload(wait_until="networkidle")
         page.wait_for_function(
             "() => document.querySelectorAll('#person-select option').length === 3")
-        page.select_option("#person-select", label="Kuro")
+        page.select_option("#person-select", label="Test Person")
         page.wait_for_timeout(900)
         assert page.inner_text("#energy-unit") == "kJ"
         n_entries = page.eval_on_selector_all(".entry", "e => e.length")

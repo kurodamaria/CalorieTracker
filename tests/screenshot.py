@@ -51,8 +51,8 @@ MEAL_KJ = 5000.0          # the generated day-long meal record
 def seed():
     with db() as conn:
         pid = repo.create_person(conn, {
-            "name": "Kuro", "dob": "1996-04-15", "sex": "male",
-            "sex_offset_kcal": 5.0, "height_cm": 180.0, "activity_multiplier": 1.25,
+            "name": "Test Person", "dob": "1990-03-15", "sex": "male",
+            "sex_offset_kcal": 5.0, "height_cm": 175.0, "activity_multiplier": 1.25,
             "target_energy_kj": 9500, "target_protein_g": 150,
             "target_carbs_g": 220, "target_fat_g": 70,
             "target_sugar_g": 50, "target_fiber_g": 30,
@@ -134,7 +134,7 @@ def main():
         page.goto(base, wait_until="networkidle")
         page.wait_for_function(
             "() => document.querySelectorAll('#person-select option').length === 2")
-        page.select_option("#person-select", label="Kuro")
+        page.select_option("#person-select", label="Test Person")
         page.wait_for_timeout(1200)
 
         page.screenshot(path=os.path.join(OUT, "shot-log.png"), full_page=True)

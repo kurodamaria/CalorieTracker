@@ -41,16 +41,18 @@ check("male BMR", mifflin_bmr_kcal(80, 180, 30, 5.0), 1780.0, 0.5)
 # Female, 65 kg, 165 cm, 30 y, -5: 650 + 1031.25 - 150 - 5 = 1526.25 kcal
 check("female BMR", mifflin_bmr_kcal(65, 165, 30, -5.0), 1526.25, 0.5)
 
-PERSON = {"dob": "1996-04-15", "height_cm": 180.0, "sex_offset_kcal": 5.0,
+PERSON = {"dob": "1990-03-15", "height_cm": 175.0, "sex_offset_kcal": 5.0,
           "activity_multiplier": 1.2}
-check("age years", age_years(date(1996, 4, 15), date(2026, 10, 3)), 30.47, 0.02)
-check("age before birthday", age_years(date(1996, 4, 15), date(2026, 4, 14)), 29.99, 0.02)
+DOB = date(1990, 3, 15)
+check("age years", age_years(DOB, date(2026, 10, 3)), 36.5534, 0.001)
+check("age before birthday", age_years(DOB, date(2026, 3, 14)), 35.9973, 0.001)
+check("age on the birthday itself is exact", age_years(DOB, date(2026, 3, 15)), 36.0, 1e-9)
 check_true("leap-day dob does not crash", isinstance(
     age_years(date(2000, 2, 29), date(2026, 1, 1)), float))
-_age = age_years(date(1996, 4, 15), date(2026, 10, 3))
+_age = age_years(DOB, date(2026, 10, 3))
 check("formula burn kJ (Mifflin x 1.2, fractional age)",
       formula_burn_kj(PERSON, 80.0, date(2026, 10, 3)),
-      mifflin_bmr_kcal(80, 180, _age, 5.0) * 1.2 * 4.184, 1e-6)
+      mifflin_bmr_kcal(80, 175, _age, 5.0) * 1.2 * 4.184, 1e-6)
 check_true("formula burn is in kJ not kcal",
            formula_burn_kj(PERSON, 80.0, date(2026, 10, 3)) > 7000)
 check("BMI", bmi(80, 180), 24.69, 0.01)

@@ -19,7 +19,7 @@ This distinction runs through the whole app, so it is worth stating plainly:
 - A **blueprint** (food or activity) is the reusable definition. `煮鸡蛋`, 649 kJ
   per 100 g. It belongs to nobody.
 - A **record** is one instance of a blueprint, attributed to exactly **one**
-  person, on one day, in a given amount. Kuro ate 2 pieces at breakfast today.
+  person, on one day, in a given amount. Sam ate 2 pieces at breakfast today.
 
 Blueprints are shared by everyone. Records are private to their person. A record
 never gets split between people — if two people ate the same thing, that is two

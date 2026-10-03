@@ -44,8 +44,8 @@ with TestClient(app) as c:
 
     # ---------------------------------------------------------- people
     print("\n--- people ---")
-    r = c.post("/api/persons", json={"name": "Kuro", "dob": "1996-04-15",
-                                     "sex": "male", "height_cm": 180})
+    r = c.post("/api/persons", json={"name": "Test Person", "dob": "1990-03-15",
+                                     "sex": "male", "height_cm": 175})
     assert r.status_code == 201, r.text
     me = r.json()
     pid = me["id"]
@@ -55,16 +55,16 @@ with TestClient(app) as c:
                str(me["target_energy_kj"]))
 
     r = c.post("/api/persons", json={"name": "Bad", "dob": "2030-01-01",
-                                     "height_cm": 180})
+                                     "height_cm": 175})
     check_true("future dob rejected", r.status_code == 422)
     r = c.post("/api/persons", json={"name": "Bad", "dob": "1990-01-01",
                                      "height_cm": 0})
     check_true("zero height rejected", r.status_code == 422)
-    r = c.put(f"/api/persons/{pid}", json={"name": "Kuro", "dob": "1996-04-15",
-                                          "sex": "female", "height_cm": 180})
+    r = c.put(f"/api/persons/{pid}", json={"name": "Test Person", "dob": "1990-03-15",
+                                          "sex": "female", "height_cm": 175})
     check_true("editable offset tracks a sex change", r.json()["sex_offset_kcal"] == -5.0)
-    r = c.put(f"/api/persons/{pid}", json={"name": "Kuro", "dob": "1996-04-15",
-                                          "sex": "male", "height_cm": 180,
+    r = c.put(f"/api/persons/{pid}", json={"name": "Test Person", "dob": "1990-03-15",
+                                          "sex": "male", "height_cm": 175,
                                           "sex_offset_kcal": 2.5})
     check_true("offset can be overridden to any number", r.json()["sex_offset_kcal"] == 2.5)
     check("offset stuck at the override", c.get(f"/api/persons/{pid}/metrics").json()
@@ -187,9 +187,10 @@ with TestClient(app) as c:
                                                     "weight_kg": 80})
     check_true("future weigh-in rejected", r.status_code == 422)
     m = c.get(f"/api/persons/{pid}/metrics").json()
-    check("BMI computed", m["bmi_now"], 80.4 / 1.8 ** 2, 0.001)
-    check("BMI band", m["bmi_band"], "normal")
-    check("BMR kcal", m["bmr_kcal"], 10 * 80.4 + 6.25 * 180 - 5 * m["age"] + 2.5, 0.01)
+    # this person is 175 cm, so 80.4 kg is a BMI just over 26
+    check("BMI computed", m["bmi_now"], 80.4 / 1.75 ** 2, 0.001)
+    check("BMI band", m["bmi_band"], "overweight")
+    check("BMR kcal", m["bmr_kcal"], 10 * 80.4 + 6.25 * 175 - 5 * m["age"] + 2.5, 0.01)
     check_true("formula burn is kJ", m["formula_burn_kj"] > 6000)
     check_true("uncalibrated with no history", m["calibrated"] is False,
                m["not_calibrated_reason"] or "")
@@ -200,7 +201,7 @@ with TestClient(app) as c:
     # A dedicated person, so the ad-hoc weights above cannot contaminate the
     # calibration window.
     cal = c.post("/api/persons", json={"name": "Cal", "dob": "1990-06-01",
-                                       "sex": "male", "height_cm": 180}).json()["id"]
+                                       "sex": "male", "height_cm": 175}).json()["id"]
     MEAL_KJ_PER_100G = 5000.0     # ~1200 kcal/100 g, a realistic mixed meal
     KJ_PER_G = MEAL_KJ_PER_100G / 100.0
     meal = c.post("/api/foods", json={"name": "Mixed meal", "energy_unit": "kj",
@@ -240,7 +241,7 @@ with TestClient(app) as c:
     check("uses ~30 days (last weigh-in leaves one gap)", m["fit"]["n_days"], 29, 1)
     check_true("no plausibility complaint", m["fit_warning"] is None,
                m["fit_warning"] or "")
-    kuro, pid = pid, cal  # kuro keeps the hand-built day; pid drives the model
+    p_one, pid = pid, cal  # p_one keeps the hand-built day; pid drives the model
 
     # ---------------------------------------------------------- forecast
     print("\n--- forecast ---")
@@ -393,18 +394,18 @@ with TestClient(app) as c:
     print("\n--- per-person targets ---")
     c.put(f"/api/persons/{pid}", json={
         "name": "Cal", "dob": "1990-06-01", "sex": "male", "sex_offset_kcal": 5.0,
-        "height_cm": 180, "target_energy_kj": 9000, "target_protein_g": 160,
+        "height_cm": 175, "target_energy_kj": 9000, "target_protein_g": 160,
         "target_carbs_g": None, "target_fat_g": 70})
     d = c.get(f"/api/day/{d0}?person_id={pid}").json()
     check("target applied to that person", d["targets"]["energy"], 9000.0)
     check("blank target is off", d["targets"]["carbs"], None)
-    g = c.get(f"/api/day/{d0}?person_id={kuro}").json()
-    # PUT is a full replace, so kuro's earlier partial update cleared its targets.
+    g = c.get(f"/api/day/{d0}?person_id={p_one}").json()
+    # PUT is a full replace, so p_one's earlier partial update cleared its targets.
     # Give it its own distinct set and confirm the two never share.
-    c.put(f"/api/persons/{kuro}", json={
-        "name": "Kuro", "dob": "1996-04-15", "sex": "male", "height_cm": 180,
+    c.put(f"/api/persons/{p_one}", json={
+        "name": "Test Person", "dob": "1990-03-15", "sex": "male", "height_cm": 175,
         "target_energy_kj": 7200, "target_protein_g": 130})
-    g = c.get(f"/api/day/{d0}?person_id={kuro}").json()
+    g = c.get(f"/api/day/{d0}?person_id={p_one}").json()
     check("each person keeps their own energy target", g["targets"]["energy"], 7200.0)
     d2 = c.get(f"/api/day/{d0}?person_id={pid}").json()
     check("and they do not leak into the other", d2["targets"]["energy"], 9000.0)
@@ -414,8 +415,8 @@ with TestClient(app) as c:
     check("target converted to kcal", d["targets"]["energy"], 9000 / KJ, 0.001)
     check("energy converted to kcal", d["totals"]["energy"],
           d["totals_kj"]["energy"] / KJ, 0.001)
-    # kuro is the hand-built day: 649 kJ of eggs and 4500 kJ of activity.
-    k = c.get(f"/api/day/{d0}?person_id={kuro}").json()
+    # p_one is the hand-built day: 649 kJ of eggs and 4500 kJ of activity.
+    k = c.get(f"/api/day/{d0}?person_id={p_one}").json()
     check("food energy converted to kcal", k["food_energy"], 649 / KJ, 0.001)
     check("activity converted to kcal (positive magnitude)",
           k["activity_energy"], 4500 / KJ, 0.001)
