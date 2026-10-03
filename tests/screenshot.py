@@ -161,7 +161,7 @@ def main():
 
         page.click('[data-view="people"]')
         page.wait_for_timeout(900)
-        shot(page, "people.png")
+        shot(page, "people.png", css=PEOPLE_TRIM)
 
         page.click('[data-view="predict"]')
         page.wait_for_function(
@@ -190,11 +190,25 @@ def main():
     print(f"screenshots written to {OUT}")
 
 
-def shot(page, name, full=True):
+def shot(page, name, full=True, css=""):
     # let any transient toast expire so it cannot appear in the capture
     page.wait_for_timeout(2900)
-    page.add_style_tag(content=SHOT_CSS)
+    page.add_style_tag(content=SHOT_CSS + css)
     page.screenshot(path=os.path.join(OUT, name), full_page=full)
+
+
+# The People page is very tall. For a README grid a full-page capture would be
+# absurd, so trim it to the parts worth looking at: the burn comparison and the
+# weight curve, without the 30-row weigh-in table.
+#
+# Scoped to #view-people: injected styles persist for the whole session, and an
+# unscoped ".panel:nth-of-type(1) { display:none }" would follow us onto the
+# Predict tab and hide the panel holding the forecast controls.
+PEOPLE_TRIM = """
+  #view-people > .panel:nth-of-type(1) { display: none !important; }
+  #view-people #weight-table,
+  #view-people .weight-row { display: none !important; }
+"""
 
 
 try:

@@ -17,52 +17,36 @@ No accounts · no cloud · no API keys · one SQLite file
 
 ## Screenshots
 
-### The day view
+<div align="center">
+<table>
+<tr>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/log.png" alt="Day view"><br><sub><b>Day view</b> &mdash; net energy, activity shown honestly, and coverage warnings where your data is incomplete</sub></td>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-weight.png" alt="Projection"><br><sub><b>Projection</b> &mdash; your weigh-ins, today marked, and a band from 1500 simulated futures</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-intake.png" alt="Intake vs burn"><br><sub><b>Intake vs. burn</b> &mdash; simulated future intake against the fitted burn</sub></td>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/people.png" alt="Body metrics"><br><sub><b>Body metrics</b> &mdash; fitted burn beside the formula estimate, with the weight curve</sub></td>
+</tr>
+</table>
+</div>
 
-Net energy, activity shown honestly, and coverage warnings where your data is
-incomplete.
+<details>
+<summary><b>More screenshots</b> &mdash; BMI projection, database, targets</summary>
 
-![Daily log with records grouped by meal and an activity group](docs/screenshots/log.png)
+<div align="center">
+<table>
+<tr>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-bmi.png" alt="BMI projection"><br><sub><b>BMI</b> &mdash; the same projection in body mass index</sub></td>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/database-foods.png" alt="Food database"><br><sub><b>Foods</b> &mdash; your own database, per any gram amount</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/database-activities.png" alt="Activity list"><br><sub><b>Activities</b> &mdash; negative energy, logged like food</sub></td>
+<td width="50%" valign="top" align="center"><img src="docs/screenshots/targets.png" alt="Targets and model settings"><br><sub><b>Targets &amp; model constants</b> &mdash; including the intake lag kernel</sub></td>
+</tr>
+</table>
+</div>
 
-### The projection
-
-Your weigh-ins on the left, today marked, and a band from 1500 simulated
-futures. Horizons from 7 to 365 days.
-
-![Weight projection with percentile bands and a horizon table](docs/screenshots/predict-weight.png)
-
-### Intake vs. burn
-
-Simulated future intake against the fitted burn — so you can see *why* the
-weight curve bends.
-
-![Simulated intake and activity against daily burn](docs/screenshots/predict-intake.png)
-
-### The same projection, in BMI
-
-![BMI projection](docs/screenshots/predict-bmi.png)
-
-### Body metrics
-
-Fitted burn beside the formula estimate, with the scatter and how many days it
-used. They converge as your history builds.
-
-![Body metrics, both burn estimates, and a weight curve](docs/screenshots/people.png)
-
-### Your database
-
-Foods and activities in separate lists. Activities carry negative energy.
-
-![Food database](docs/screenshots/database-foods.png)
-
-![Activity list, showing energy burned](docs/screenshots/database-activities.png)
-
-### Targets and model constants
-
-Per-person daily targets, plus the four constants you can argue with: energy per
-kg, calibration window, simulation paths, and the intake lag kernel.
-
-![Targets and model settings](docs/screenshots/targets.png)
+</details>
 
 ---
 
