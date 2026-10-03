@@ -143,7 +143,7 @@ def main():
     with sync_playwright() as p:
         b = p.chromium.launch()
         page = b.new_page(viewport={"width": 1280, "height": 900},
-                          device_scale_factor=2)
+                          device_scale_factor=1)
         page.goto(base, wait_until="networkidle")
         page.add_style_tag(content=SHOT_CSS)
         page.wait_for_function(

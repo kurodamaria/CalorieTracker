@@ -17,31 +17,54 @@ No accounts · no cloud · no API keys · one SQLite file
 
 ## Screenshots
 
+<!--
+  Two-up grid. Two things learned the hard way, both preserved here:
+
+  1. The width goes on each <img>, not the <td>. github-markdown-css sets
+     `table { width: max-content }`, so td width="50%" is ignored.
+  2. Keep the in-cell captions to a few words. A max-content table sizes to the
+     widest caption line, so a 60-character caption silently overrides the image
+     width and pushes the grid past the content column. The prose lives below.
+-->
+
 <div align="center">
 <table>
 <tr>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/log.png" alt="Day view"><br><sub><b>Day view</b> &mdash; net energy, activity shown honestly, and coverage warnings where your data is incomplete</sub></td>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-weight.png" alt="Projection"><br><sub><b>Projection</b> &mdash; your weigh-ins, today marked, and a band from 1500 simulated futures</sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/log.png" width="480" alt="Day view"><br><sub><b>Day view</b></sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/predict-weight.png" width="480" alt="Projection"><br><sub><b>Projection</b></sub></td>
 </tr>
 <tr>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-intake.png" alt="Intake vs burn"><br><sub><b>Intake vs. burn</b> &mdash; simulated future intake against the fitted burn</sub></td>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/people.png" alt="Body metrics"><br><sub><b>Body metrics</b> &mdash; fitted burn beside the formula estimate, with the weight curve</sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/predict-intake.png" width="480" alt="Intake vs burn"><br><sub><b>Intake vs. burn</b></sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/people.png" width="480" alt="Body metrics"><br><sub><b>Body metrics</b></sub></td>
 </tr>
 </table>
 </div>
 
+**Day view** — net energy with activity shown honestly, a tile per macro against
+its target, records grouped by meal, and amber warnings on any nutrient whose
+total is only partly covered by what you actually recorded.
+
+**Projection** — your weigh-ins, today marked, and a band from 1500 simulated
+futures, tabulated at 7 / 14 / 30 / 90 / 180 / 365 days.
+
+**Intake vs. burn** — simulated future intake against the fitted burn, which is
+what actually makes the weight curve bend.
+
+**Body metrics** — the fitted burn beside the formula estimate, with the residual
+scatter and how many days it used. They converge as your history builds.
+
 <details>
-<summary><b>More screenshots</b> &mdash; BMI projection, database, targets</summary>
+<summary><b>More screenshots</b> — BMI projection, the database, targets</summary>
 
 <div align="center">
 <table>
 <tr>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/predict-bmi.png" alt="BMI projection"><br><sub><b>BMI</b> &mdash; the same projection in body mass index</sub></td>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/database-foods.png" alt="Food database"><br><sub><b>Foods</b> &mdash; your own database, per any gram amount</sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/predict-bmi.png" width="480" alt="BMI projection"><br><sub><b>BMI</b></sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/database-foods.png" width="480" alt="Food database"><br><sub><b>Foods</b></sub></td>
 </tr>
 <tr>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/database-activities.png" alt="Activity list"><br><sub><b>Activities</b> &mdash; negative energy, logged like food</sub></td>
-<td width="50%" valign="top" align="center"><img src="docs/screenshots/targets.png" alt="Targets and model settings"><br><sub><b>Targets &amp; model constants</b> &mdash; including the intake lag kernel</sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/database-activities.png" width="480" alt="Activity list"><br><sub><b>Activities</b></sub></td>
+<td valign="top" align="center"><img src="docs/screenshots/targets.png" width="480" alt="Targets and model settings"><br><sub><b>Targets &amp; model</b></sub></td>
 </tr>
 </table>
 </div>
