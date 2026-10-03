@@ -303,8 +303,11 @@ Interactive docs at `/docs` once the server is running.
 
 ## Licence
 
-Not yet chosen — see the repository page. Add a `LICENSE` file before relying on
-this for anything.
+[MIT](LICENSE) — use it, fork it, change it. The only conditions are keeping the
+copyright notice and licence text in copies you distribute.
+
+If you fork this and publish it as a service rather than a tool, consider whether
+you actually want it to stay MIT.
 
 ## Not built
 
