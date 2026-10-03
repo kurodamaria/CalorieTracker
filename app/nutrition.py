@@ -6,19 +6,53 @@ KJ_PER_KCAL = 4.184
 # Atwater factors (gross energy).
 KJ_PER_G = {"protein": 17.0, "carbs": 17.0, "fat": 37.0}
 
-NUTRIENTS = ("energy", "protein", "carbs", "fat", "sugar", "fiber")
+# Storage column for each nutrient. Sodium is in milligrams because that is how
+# every nutrition label states it; everything else is grams and energy is kJ.
+COLUMN = {
+    "energy": "energy_kj",
+    "carbs": "carbs_g",
+    "protein": "protein_g",
+    "fat": "fat_g",
+    "sodium": "sodium_mg",
+    "sugar": "sugar_g",
+    "fiber": "fiber_g",
+}
+UNITS = {
+    "energy": "kJ", "carbs": "g", "protein": "g", "fat": "g",
+    "sodium": "mg", "sugar": "g", "fiber": "g",
+}
+NUTRIENTS = tuple(COLUMN)
 LABELS = {
     "energy": "Energy",
-    "protein": "Protein",
     "carbs": "Carbs",
+    "protein": "Protein",
     "fat": "Fat",
+    "sodium": "Sodium",
     "sugar": "Sugar",
     "fiber": "Fiber",
 }
-# Energy is stored in kJ; the rest are grams.
-UNITS = {n: "kJ" if n == "energy" else "g" for n in NUTRIENTS}
+
+# Given their own tile on the day summary, with a completeness warning of their
+# own. These are the macros you steer your eating by.
+TILES = ("carbs", "protein", "fat", "sodium")
+
+# Stored, editable and targetable, but rolled into one shared completeness line.
+# Labels are patchy for both: sugars only on some panels, and fibre tends to be
+# absent unless it is the thing being sold.
+MINOR = ("sugar", "fiber")
+
 TARGET_SETTING = {n: f"target_{n}" for n in NUTRIENTS}
 UNITS_PER_100G = {"g": 1.0, "ml": 1.0, "piece": 1.0}
+
+
+def value_of(source: dict, nutrient: str) -> float | None:
+    """Read a nutrient out of a foods or food-joined row by its storage column."""
+    return source[COLUMN[nutrient]]
+
+
+def target_column(nutrient: str) -> str:
+    """The column a person's target for this nutrient lives in."""
+    return f"target_{COLUMN[nutrient]}"
 
 
 def to_kj(value: float, unit: str) -> float:
@@ -73,7 +107,7 @@ def normalize_food(food: dict, display_unit: str = "kj") -> dict:
         "known": {},
     }
     for n in NUTRIENTS:
-        raw = food["energy_kj"] if n == "energy" else food[f"{n}_g"]
+        raw = value_of(food, n)
         if raw is None:
             out["per100"][n] = None
             out["known"][n] = False
@@ -127,7 +161,7 @@ def entry_nutrients(food: dict, amount: float, unit: str) -> dict[str, float]:
         else 0.0
     result = {}
     for n in NUTRIENTS:
-        raw = food["energy_kj"] if n == "energy" else food[f"{n}_g"]
+        raw = value_of(food, n)
         result[n] = None if raw is None else raw * factor
     return result
 

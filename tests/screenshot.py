@@ -30,16 +30,18 @@ TODAY = date.today()
 KJ_PER_G = 50.0
 
 FOODS = [
-    # name, kJ/100g, protein, carbs, fat, sugar, fiber, g/piece, brand
-    ("煮鸡蛋", 649, 12.6, 0.6, 10.6, 0.6, 0, 50, ""),
-    ("Greek yoghurt", 406, 9.0, 3.6, 5.0, 3.6, 0, 170, "Fage"),
-    ("Oatflakes", 1585, 13.2, 67.7, 6.5, 1.0, 10.1, None, "Quaker"),
-    ("Whole milk", 268, 3.3, 4.8, 3.6, 4.8, 0, None, ""),
-    ("Chicken breast, grilled", 690, 31.0, 0.0, 3.6, 0.0, 0, None, ""),
-    ("Basmati rice, dry", 1410, 8.5, 28.6, 0.6, None, None, None, ""),
-    ("Almonds, raw", 2514, 21.2, 21.6, 49.9, 4.4, 12.5, 1.2, ""),
-    ("Salmon fillet", 2080, 20.0, 0.0, 13.0, 0.0, 0, None, ""),
-    ("Banana", 370, 1.1, 22.8, 0.3, 12.2, 2.6, None, ""),
+    # name, kJ/100g, protein, carbs, fat, sodium mg, sugar, fiber, g/piece, brand
+    ("煮鸡蛋", 649, 12.6, 0.6, 10.6, 131, 0.6, 0, 50, ""),
+    ("Greek yoghurt", 406, 9.0, 3.6, 5.0, 36, 3.6, 0, 170, "Fage"),
+    ("Oatflakes", 1585, 13.2, 67.7, 6.5, 62, 1.0, 10.1, None, "Quaker"),
+    ("Whole milk", 268, 3.3, 4.8, 3.6, 44, 4.8, 0, None, ""),
+    ("Chicken breast, grilled", 690, 31.0, 0.0, 3.6, 74, 0.0, 0, None, ""),
+    # rice: the label lists no sodium, sugar or fiber - which is exactly the
+    # case the coverage warnings exist for
+    ("Basmati rice, dry", 1410, 8.5, 28.6, 0.6, None, None, None, None, ""),
+    ("Almonds, raw", 2514, 21.2, 21.6, 49.9, 1, 4.4, 12.5, 1.2, ""),
+    ("Salmon fillet", 2080, 20.0, 0.0, 13.0, 59, 0.0, 0, None, ""),
+    ("Banana", 370, 1.1, 22.8, 0.3, 1, 12.2, 2.6, None, ""),
 ]
 ACTIVITIES = [
     ("Run, 5 km", -1500),
@@ -58,6 +60,7 @@ def seed():
             "target_energy_kj": 9500, "target_protein_g": 150,
             "target_carbs_g": 220, "target_fat_g": 70,
             "target_sugar_g": 50, "target_fiber_g": 30,
+            "target_sodium_mg": 2000,
         })
         repo.create_person(conn, {
             "name": "Guest", "dob": "1995-05-05", "sex": "female",
@@ -65,26 +68,27 @@ def seed():
         })
 
         food_ids = {}
-        for name, kj, p, cb, f, s, fib, gpp, brand in FOODS:
+        for name, kj, p, cb, f, na, s, fib, gpp, brand in FOODS:
             food_ids[name] = repo.create_food(conn, {
                 "name": name, "brand": brand or None, "kind": "food",
                 "base_amount": 100.0, "base_unit": "kj", "energy_kj": float(kj),
-                "protein_g": p, "carbs_g": cb, "fat_g": f, "sugar_g": s,
-                "fiber_g": fib, "grams_per_ml": 1.0, "grams_per_piece": gpp,
-                "notes": None})
+                "protein_g": p, "carbs_g": cb, "fat_g": f, "sodium_mg": na,
+                "sugar_g": s, "fiber_g": fib, "grams_per_ml": 1.0,
+                "grams_per_piece": gpp, "notes": None})
         act_ids = {n: repo.create_food(conn, {
             "name": n, "brand": None, "kind": "activity", "base_amount": 1.0,
             "base_unit": "kj", "energy_kj": float(k), "protein_g": None,
-            "carbs_g": None, "fat_g": None, "sugar_g": None, "fiber_g": None,
-            "grams_per_ml": 1.0, "grams_per_piece": None, "notes": None})
+            "carbs_g": None, "fat_g": None, "sodium_mg": None, "sugar_g": None,
+            "fiber_g": None, "grams_per_ml": 1.0, "grams_per_piece": None,
+            "notes": None})
             for n, k in ACTIVITIES}
 
         meal = repo.create_food(conn, {
             "name": "Mixed meal", "brand": None, "kind": "food",
             "base_amount": 100.0, "base_unit": "kj", "energy_kj": MEAL_KJ,
-            "protein_g": 45.0, "carbs_g": 60.0, "fat_g": 22.0, "sugar_g": 8.0,
-            "fiber_g": 6.0, "grams_per_ml": 1.0, "grams_per_piece": None,
-            "notes": None})
+            "protein_g": 45.0, "carbs_g": 60.0, "fat_g": 22.0, "sodium_mg": 1100,
+            "sugar_g": 8.0, "fiber_g": 6.0, "grams_per_ml": 1.0,
+            "grams_per_piece": None, "notes": None})
 
         # 60 days of history with a known burn, so the model calibrates
         rng = random.Random(11)

@@ -50,6 +50,7 @@ class FoodIn(BaseModel):
     protein: float | None = Field(default=None, ge=0)
     carbs: float | None = Field(default=None, ge=0)
     fat: float | None = Field(default=None, ge=0)
+    sodium: float | None = Field(default=None, ge=0)
     sugar: float | None = Field(default=None, ge=0)
     fiber: float | None = Field(default=None, ge=0)
     grams_per_ml: float = Field(default=1.0, gt=0)
@@ -111,6 +112,7 @@ class PersonIn(BaseModel):
     target_fat_g: float | None = Field(default=None, ge=0)
     target_sugar_g: float | None = Field(default=None, ge=0)
     target_fiber_g: float | None = Field(default=None, ge=0)
+    target_sodium_mg: float | None = Field(default=None, ge=0)
 
     @field_validator("sex")
     @classmethod
@@ -198,6 +200,7 @@ def _food_payload(body: FoodIn) -> dict:
         "protein_g": None if is_activity else body.protein,
         "carbs_g": None if is_activity else body.carbs,
         "fat_g": None if is_activity else body.fat,
+        "sodium_mg": None if is_activity else body.sodium,
         "sugar_g": None if is_activity else body.sugar,
         "fiber_g": None if is_activity else body.fiber,
         "grams_per_ml": 1.0 if is_activity else body.grams_per_ml,
@@ -245,6 +248,14 @@ def api_config():
         "energy_display": settings["energy_display"],
         "labels": N.LABELS,
         "units": N.UNITS,
+        "nutrients": list(N.NUTRIENTS),
+        # Which nutrients get their own tile and their own completeness warning,
+        # and where each one's target is stored. Published so the client does not
+        # have to guess that sodium lives in target_sodium_mg.
+        "tiles": list(N.TILES),
+        "minor": list(N.MINOR),
+        "columns": dict(N.COLUMN),
+        "target_columns": {n: N.target_column(n) for n in N.NUTRIENTS},
         "kj_per_kcal": N.KJ_PER_KCAL,
         "settings": settings,
         "persons": [dict(p) for p in persons],
@@ -337,7 +348,7 @@ def api_create_person(body: PersonIn):
         # Seed targets from the global defaults so a new person starts sane.
         for n in N.NUTRIENTS:
             key = f"target_{n}"
-            field = f"target_{n}_kj" if n == "energy" else f"target_{n}_g"
+            field = N.target_column(n)
             if data.get(field) is None and settings.get(key):
                 try:
                     data[field] = float(settings[key])

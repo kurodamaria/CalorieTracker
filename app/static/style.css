@@ -212,6 +212,19 @@ fieldset.basis input { max-width: 130px; }
 .macro-bar > i { display: block; height: 100%; background: var(--accent-dim); }
 .macro-note { color: var(--warn); font-size: 10.5px; margin-top: 4px; display: block; }
 
+/* Sugar and fiber: tracked and summed, but summarised on one line rather than
+   given a tile each. */
+.minor-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.minor-line {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 12px; font-size: 12px;
+}
+.minor-line .m-name { color: var(--muted); }
+.minor-line .m-val { color: var(--text); font-variant-numeric: tabular-nums; }
+.minor-line.partial { border-color: var(--warn); }
+.minor-line.partial .m-val { color: var(--warn); }
+
 /* ----------------------------------------------------------------- add */
 .add-row { display: grid; grid-template-columns: 1fr 104px 96px 96px auto; gap: 9px; align-items: center; }
 .search-wrap { position: relative; }

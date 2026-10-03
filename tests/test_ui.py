@@ -45,7 +45,8 @@ def add_food(page, name, energy, unit="kj", base=None, **macros):
     page.select_option("#f-energy-unit", unit)
     page.fill("#f-energy", str(energy))
     for key, sel in (("protein", "#f-protein"), ("carbs", "#f-carbs"),
-                     ("fat", "#f-fat"), ("sugar", "#f-sugar"),
+                     ("fat", "#f-fat"), ("sodium", "#f-sodium"),
+                     ("sugar", "#f-sugar"),
                      ("fiber", "#f-fiber"), ("gpp", "#f-g-per-piece")):
         v = macros.get(key)
         page.fill(sel, "" if v is None else str(v))
@@ -133,10 +134,11 @@ def run():
 
         # ------------------------------------------------- 3. blueprints
         add_food(page, "煮鸡蛋", 649, unit="kj", protein=12.6, carbs=0.6, fat=10.6,
-                 sugar=0.6, fiber=0, gpp=50)
+                 sodium=131, sugar=0.6, fiber=0, gpp=50)
         add_food(page, "Greek yoghurt", 97, unit="kcal", protein=9, carbs=3.6,
-                 fat=5, sugar=3.6, gpp=170)
-        add_food(page, "Mixed meal", 5000, unit="kj", protein=45, carbs=60, fat=22)
+                 fat=5, sodium=36, sugar=3.6, gpp=170)
+        add_food(page, "Mixed meal", 5000, unit="kj", protein=45, carbs=60, fat=22,
+                 sodium=1100)
         add_food(page, "Basmati rice, dry", 1410, protein=8.5, carbs=28.6, fat=0.6)
         add_activity(page, "Run, 5 km", -1500)
         add_activity(page, "Gym session", -2500)
@@ -185,6 +187,7 @@ def run():
         # 2 pieces x 50 g = 100 g, and the egg is 649 kJ per 100 g
         assert "2.0 piece" in hint and "649 kJ" in hint, hint
         assert "Protein 12.6 g" in hint, hint
+        assert "Sodium 131.0 mg" in hint, hint
         page.click("#add-btn")
         page.wait_for_selector(".entry")
         assert page.inner_text("#energy-total").strip() == "649", \
@@ -216,13 +219,63 @@ def run():
         assert abs(total - (649 + 97 * KJ * 1.7 - 1500)) < 1.0, f"net after the run: {total}"
         balance = page.inner_text("#balance-line")
         assert "ate" in balance and "activity" in balance and "net" in balance, balance
-        protein = page.eval_on_selector(
-            ".macro", "el => [el.querySelector('.macro-name').textContent,"
-                      " el.querySelector('.macro-val').textContent]")
-        assert "Protein" in protein[0] and protein[1] == "28 g", \
-            f"protein must ignore the run: {protein}"
-        print(f"PASS  net energy after activity: {total} ({balance.strip()})")
-        print(f"PASS  macros untouched by activity: {protein[1]}")
+        tiles = page.eval_on_selector_all(
+            ".macro", "els => els.map(e => [e.querySelector('.macro-name').textContent,"
+                      " e.querySelector('.macro-val').textContent])")
+        names = [t[0] for t in tiles]
+        assert names == ["Carbs", "Protein", "Fat", "Sodium"], names
+        protein = next(t for t in tiles if t[0] == "Protein")
+        assert protein[1] == "28 g", f"protein must ignore the run: {tiles}"
+        sodium = next(t for t in tiles if t[0] == "Sodium")
+        assert sodium[1].endswith("mg"), f"sodium must carry mg: {sodium}"
+        print(f"PASS  tiles are exactly {names}")
+        print(f"PASS  macros untouched by activity: {protein[1]}, sodium {sodium[1]}")
+
+        minor = page.eval_on_selector_all(
+            ".minor-line", "els => els.map(e => [e.querySelector('.m-name').textContent,"
+                          " e.querySelector('.m-val').textContent,"
+                          " e.classList.contains('partial')])")
+        minor_names = [m[0] for m in minor]
+        assert minor_names == ["Sugar", "Fiber"], minor_names
+        assert any(m[2] for m in minor), "rice has neither, so both should flag"
+        print(f"PASS  sugar+fiber summarised on one line: "
+              f"{[(m[0], m[1]) for m in minor]}")
+
+        partials = page.eval_on_selector_all(
+            ".macro.partial .macro-name", "els => els.map(e => e.textContent)")
+        # Every food logged so far carries sodium, so no tile should warn.
+        assert partials == [], f"nothing is incomplete yet: {partials}"
+        minor = page.eval_on_selector_all(
+            ".minor-line", "els => els.map(e => [e.querySelector('.m-name').textContent,"
+                          " e.classList.contains('partial')])")
+        # Sugar is on both foods, so it is complete; fibre is not on the yoghurt,
+        # so the summary line is already flagging it.
+        assert dict(minor)["Sugar"] is False, f"sugar is complete: {minor}"
+        assert dict(minor)["Fiber"] is True, f"fibre gap: {minor}"
+        print("PASS  no tile warns while every food has the value")
+
+        # Now log a food with no sodium value at all - the label simply omits it.
+        pick(page, "Basmati", "Basmati rice, dry")
+        page.select_option("#add-meal", "dinner")
+        page.fill("#add-amount", "80")
+        page.click("#add-btn")
+        page.wait_for_timeout(500)
+
+        partials = page.eval_on_selector_all(
+            ".macro.partial .macro-name", "els => els.map(e => e.textContent)")
+        assert "Sodium" in partials, f"sodium must warn once a food lacks it: {partials}"
+        assert "Sugar" not in partials and "Fiber" not in partials, \
+            f"sugar/fiber must never take a tile: {partials}"
+        note = page.eval_on_selector(
+            ".macro.partial .macro-note", "el => el.textContent")
+        assert "sodium value" in note, note
+        minor = page.eval_on_selector_all(
+            ".minor-line", "els => els.map(e => [e.querySelector('.m-name').textContent,"
+                          " e.classList.contains('partial')])")
+        assert dict(minor)["Fiber"] is True, \
+            f"rice has no fiber, so the summary line must say so: {minor}"
+        print(f"PASS  sodium warns once a food omits it: {partials} — {note}")
+        print(f"PASS  fiber gap reported on the summary line instead: {minor}")
 
         act_label = page.inner_text(".entry-group-label.activity")
         assert "activity" in act_label.lower(), act_label
@@ -247,7 +300,7 @@ def run():
 
         page.select_option("#person-select", label="Test Person")
         page.wait_for_function(
-            "() => document.querySelectorAll('.entry').length === 3")
+            "() => document.querySelectorAll('.entry').length === 4")
         print("PASS  switching back restores the first person's records")
 
         # ------------------------------------------ 6. weights + metrics
@@ -439,7 +492,7 @@ def run():
         page.wait_for_timeout(900)
         assert page.inner_text("#energy-unit") == "kJ"
         n_entries = page.eval_on_selector_all(".entry", "e => e.length")
-        assert n_entries == 3, f"records lost across reload: {n_entries}"
+        assert n_entries == 4, f"records lost across reload: {n_entries}"
         page.click('[data-view="predict"]')
         page.wait_for_function(
             "() => document.querySelectorAll('#forecast-table tbody tr').length >= 1",

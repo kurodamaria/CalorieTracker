@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS persons (
     target_fat_g        REAL,
     target_sugar_g      REAL,
     target_fiber_g      REAL,
+    target_sodium_mg    REAL,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS foods (
     protein_g       REAL,
     carbs_g         REAL,
     fat_g           REAL,
+    sodium_mg       REAL,                     -- milligrams, as labels state it
     sugar_g         REAL,
     fiber_g         REAL,
     grams_per_ml    REAL    NOT NULL DEFAULT 1.0,
@@ -111,6 +113,8 @@ DEFAULTS = {
     "target_fat": "70",
     "target_sugar": "50",
     "target_fiber": "30",
+    # General adult guideline: 2000 mg/day. Blank this target if you do not care.
+    "target_sodium": "2000",
 }
 
 NUTRIENTS = ("energy", "protein", "carbs", "fat", "sugar", "fiber")
@@ -169,7 +173,6 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
 
         person_id = None
         if legacy:
-            first_day = min(r["day"] for r in legacy)
             cur = conn.execute(
                 "INSERT INTO persons (name, dob, height_cm, target_energy_kj,"
                 " target_protein_g, target_carbs_g, target_fat_g, target_sugar_g,"
@@ -196,7 +199,26 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     if _table_exists(conn, "foods"):
         conn.execute("UPDATE foods SET base_amount = 1.0 WHERE kind = 'activity' "
                      "AND base_amount <> 1.0")
+    _add_missing_columns(conn, notes)
     return notes
+
+
+# Columns added after the first release. A fresh database gets them from SCHEMA;
+# an existing one needs ALTER TABLE, and every one of these is nullable so the
+# statement is always safe.
+ADDED_COLUMNS = (
+    ("foods", "sodium_mg", "REAL"),
+    ("persons", "target_sodium_mg", "REAL"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection, notes: list[str]) -> None:
+    for table, column, decl in ADDED_COLUMNS:
+        if not _table_exists(conn, table):
+            continue
+        if column not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            notes.append(f"{table}: adding {column}")
 
 
 def init_db() -> list[str]:

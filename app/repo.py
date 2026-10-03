@@ -13,7 +13,7 @@ MEALS = ("breakfast", "lunch", "dinner", "snack")
 FOOD_COLUMNS = (
     "id", "name", "brand", "kind", "notes", "base_amount", "base_unit",
     "grams_per_ml", "grams_per_piece", "energy_kj", "protein_g", "carbs_g",
-    "fat_g", "sugar_g", "fiber_g",
+    "fat_g", "sodium_mg", "sugar_g", "fiber_g",
 )
 
 
@@ -42,10 +42,11 @@ def create_food(conn: sqlite3.Connection, data: dict) -> int:
         """
         INSERT INTO foods
             (name, brand, kind, base_amount, base_unit, energy_kj, protein_g,
-             carbs_g, fat_g, sugar_g, fiber_g, grams_per_ml, grams_per_piece, notes)
+             carbs_g, fat_g, sodium_mg, sugar_g, fiber_g, grams_per_ml,
+             grams_per_piece, notes)
         VALUES (:name, :brand, :kind, :base_amount, :base_unit, :energy_kj,
-                :protein_g, :carbs_g, :fat_g, :sugar_g, :fiber_g, :grams_per_ml,
-                :grams_per_piece, :notes)
+                :protein_g, :carbs_g, :fat_g, :sodium_mg, :sugar_g, :fiber_g,
+                :grams_per_ml, :grams_per_piece, :notes)
         """,
         data,
     )
@@ -58,8 +59,8 @@ def update_food(conn: sqlite3.Connection, food_id: int, data: dict) -> None:
         UPDATE foods SET
             name = :name, brand = :brand, kind = :kind, base_amount = :base_amount,
             base_unit = :base_unit, energy_kj = :energy_kj, protein_g = :protein_g,
-            carbs_g = :carbs_g, fat_g = :fat_g, sugar_g = :sugar_g,
-            fiber_g = :fiber_g, grams_per_ml = :grams_per_ml,
+            carbs_g = :carbs_g, fat_g = :fat_g, sodium_mg = :sodium_mg,
+            sugar_g = :sugar_g, fiber_g = :fiber_g, grams_per_ml = :grams_per_ml,
             grams_per_piece = :grams_per_piece, notes = :notes
         WHERE id = :id
         """,
@@ -77,6 +78,7 @@ PERSON_COLUMNS = (
     "id", "name", "dob", "sex", "sex_offset_kcal", "height_cm",
     "activity_multiplier", "target_energy_kj", "target_protein_g",
     "target_carbs_g", "target_fat_g", "target_sugar_g", "target_fiber_g",
+    "target_sodium_mg",
 )
 
 
@@ -199,7 +201,7 @@ def day_summary(conn: sqlite3.Connection, person_id: int, logged_on: str,
 
     targets = {}
     for n in N.NUTRIENTS:
-        value = person[f"target_{n}_kj"] if n == "energy" else person[f"target_{n}_g"]
+        value = person[N.target_column(n)]
         if value is None:
             targets[n] = None
         elif n == "energy" and display_unit == "kcal":

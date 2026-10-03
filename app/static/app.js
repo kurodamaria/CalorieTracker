@@ -20,8 +20,21 @@ const state = {
   showForecasts: new Set(),
 };
 
-const MACROS = ["protein", "carbs", "fat", "sugar", "fiber"];
-const NUTRIENTS = ["energy", ...MACROS];
+// Order of the nutrient fields in the food editor, the food table and the
+// per-record preview. energy is handled separately (it has a unit selector).
+const FOOD_FIELDS = ["protein", "carbs", "fat", "sodium", "sugar", "fiber"];
+const FIELD_ID = {
+  protein: "f-protein", carbs: "f-carbs", fat: "f-fat", sodium: "f-sodium",
+  sugar: "f-sugar", fiber: "f-fiber",
+};
+
+// Which nutrients get their own tile and their own completeness warning comes
+// from /api/config, so nutrition.TILES is the single source of truth. The rest
+// are recorded and targetable but rolled into one shared line: labels are patchy
+// for exactly those, and nagging daily trains you to ignore the warnings that
+// do matter.
+let TILES = ["carbs", "protein", "fat", "sodium"];
+let MINOR = ["sugar", "fiber"];
 
 /* ============================================================ helpers */
 
@@ -198,28 +211,47 @@ function renderSummary(d) {
   bar.style.width = `${Math.max(0, Math.min(pct, 100))}%`;
   bar.classList.toggle("over", pct > 100);
 
-  $("#macro-grid").innerHTML = MACROS.map((n) => {
+  $("#macro-grid").innerHTML = TILES.map((n) => {
     const value = totals[n];
     const target = d.targets[n];
     const partial = d.partial[n];
+    const u = state.config.units[n];
     const pctW = target && value !== null ? Math.min((value / target) * 100, 100) : 0;
     const missingPct = partial ? Math.round((1 - d.coverage[n]) * 100) : 0;
     const note = partial
-      ? `<span class="macro-note">~${missingPct}% of today's food has no ${n} value</span>`
+      ? `<span class="macro-note">~${missingPct}% of today's food has no ${state.config.labels[n].toLowerCase()} value</span>`
       : "";
     let sub;
     if (!target) sub = "no target";
-    else if (value === null) sub = `target ${fmt(target)} g`;
-    else sub = `target ${fmt(target)} g · ${fmt(target - value)} left`;
+    else if (value === null) sub = `target ${fmt(target)} ${u}`;
+    else sub = `target ${fmt(target)} ${u} · ${fmt(target - value)} left`;
     return `<div class="macro${partial ? " partial" : ""}">
       <div class="macro-head">
         <span class="macro-name">${state.config.labels[n]}</span>
         <span class="macro-val${value === null ? " unknown" : ""}">${
-          value === null ? "no data" : `${fmt(value)} g`
+          value === null ? "no data" : `${fmt(value)} ${u}`
         }</span>
       </div>
       <div class="macro-bar"><i style="width:${pctW}%"></i></div>
       <div class="macro-target">${sub}</div>${note}</div>`;
+  }).join("");
+
+  // Sugar and fiber get no tile, but they are still tracked and still summed.
+  // Report them on one line so the tiles stay readable while the incompleteness
+  // stays visible.
+  $("#minor-grid").innerHTML = MINOR.map((n) => {
+    const value = totals[n];
+    const u = state.config.units[n];
+    const target = d.targets[n];
+    const pct = d.coverage[n];
+    const partial = d.partial[n];
+    const cls = partial ? "minor-line partial" : "minor-line";
+    const val = value === null ? "no data"
+      : `${fmt(value)}${target ? ` / ${fmt(target)}` : ""} ${u}`;
+    const gap = partial ? ` · only ${Math.round(pct * 100)}% covered` : "";
+    return `<span class="${cls}">
+      <span class="m-name">${state.config.labels[n]}</span>
+      <span class="m-val">${val}${gap}</span></span>`;
   }).join("");
 
   const hints = [];
@@ -228,9 +260,11 @@ function renderSummary(d) {
   } else if (d.energy_basis === "unavailable") {
     hints.push("No energy data available for today's records.");
   }
-  const partialNames = MACROS.filter((n) => d.partial[n]);
+  const partialNames = FOOD_FIELDS
+    .filter((n) => d.partial[n])
+    .map((n) => state.config.labels[n].toLowerCase());
   if (partialNames.length) {
-    hints.push(`${partialNames.join(", ")} totals cover only part of today's food — missing values were treated as 0.`);
+    hints.push(`Incomplete today: ${partialNames.join(", ")} — foods with no value were counted as 0.`);
   }
   $("#energy-hint").textContent = hints.join(" ");
   $("#energy-hint").classList.toggle("error", d.energy_basis === "unavailable");
@@ -269,7 +303,7 @@ function renderEntries(d) {
 function entryRow(item, unit, isActivity) {
   const e = item.entry;
   const n = item.nutrients.energy;
-  const missing = MACROS.filter((k) => item.nutrients[k] === null);
+  const missing = FOOD_FIELDS.filter((k) => item.nutrients[k] === null);
   const missingNote = !isActivity && missing.length
     ? ` · blank: ${missing.join(", ")}` : "";
   const qty = isActivity
@@ -330,8 +364,8 @@ function renderResults(show = true) {
   const unit = energyUnit();
   ul.innerHTML = state.results
     .map((f, i) => {
-      const known = MACROS.filter((n) => f.known[n]).length;
-      const blank = known < MACROS.length ? ` · ${MACROS.length - known} blank` : "";
+      const known = FOOD_FIELDS.filter((n) => f.known[n]).length;
+      const blank = known < FOOD_FIELDS.length ? ` · ${FOOD_FIELDS.length - known} blank` : "";
       const per = f.kind === "activity" ? "per session" : "per 100 g";
       return `<li data-idx="${i}" data-name="${escapeHtml(f.name)}" class="${
         i === state.activeResult ? "active" : ""
@@ -404,8 +438,8 @@ function updateAddHint() {
   const factor = isAct ? amount : grams / f.base_amount;
   const kj = f.energy_kj * factor;
   const unitName = energyUnit();
-  const macros = isAct ? "" : " · " + MACROS.filter((n) => f.known[n])
-    .map((n) => `${state.config.labels[n]} ${fmt(f.per100[n] * factor, 1)} g`)
+  const macros = isAct ? "" : " · " + FOOD_FIELDS.filter((n) => f.known[n])
+    .map((n) => `${state.config.labels[n]} ${fmt(f.per100[n] * factor, 1)} ${state.config.units[n]}`)
     .join(" · ");
   hint.textContent = `${fmt(amount, 1)} ${isAct ? "session" : unit} → ${
     kj < 0 ? "−" : ""}${fmt(Math.abs(fromKj(kj)))} ${unitName} ${
@@ -471,10 +505,10 @@ function renderFoodTable() {
   const isAct = state.kind === "activity";
   $("#food-thead").innerHTML = isAct
     ? `<th>Activity</th><th class="num">Energy burned</th><th></th>`
-    : `<th>Food</th><th class="num">Energy</th><th class="num">Protein</th>
-       <th class="num">Carbs</th><th class="num">Fat</th><th class="num">Sugar</th>
-       <th class="num">Fiber</th><th class="num">g/piece</th><th></th>`;
-  const colspan = isAct ? 3 : 9;
+    : `<th>Food</th><th class="num">Energy</th>` +
+      FOOD_FIELDS.map((n) => `<th class="num">${state.config.labels[n]} (${state.config.units[n]})</th>`).join("") +
+      `<th class="num">g/piece</th><th></th>`;
+  const colspan = isAct ? 3 : 3 + FOOD_FIELDS.length;
 
   const tbody = $("#food-table tbody");
   if (!filtered.length) {
@@ -501,7 +535,7 @@ function renderFoodTable() {
           ? `<br /><span class="hint">${escapeHtml(f.brand)}</span>` : ""}
           <br /><span class="hint">per ${fmt(f.base_amount, 0)} g as entered (${f.base_unit})</span></td>
         <td class="num">${fmt(f.energy, 1)} ${unit}</td>
-        ${MACROS.map((n) => `<td class="num">${cell(n)}</td>`).join("")}
+        ${FOOD_FIELDS.map((n) => `<td class="num">${cell(n)}</td>`).join("")}
         <td class="num">${f.grams_per_piece
           ? fmt(f.grams_per_piece, 1) : `<span class="unknown">–</span>`}</td>
         <td>${actions}</td></tr>`;
@@ -522,11 +556,9 @@ function fillFoodForm(id) {
     $("#f-energy").value = s.base_unit === "kcal"
       ? fmtRaw(kj / state.config.kj_per_kcal)
       : fmtRaw(kj);
-    $("#f-protein").value = s.protein_g ?? "";
-    $("#f-carbs").value = s.carbs_g ?? "";
-    $("#f-fat").value = s.fat_g ?? "";
-    $("#f-sugar").value = s.sugar_g ?? "";
-    $("#f-fiber").value = s.fiber_g ?? "";
+    for (const n of FOOD_FIELDS) {
+      $("#" + FIELD_ID[n]).value = s[state.config.columns[n]] ?? "";
+    }
     $("#f-g-per-ml").value = s.grams_per_ml;
     $("#f-g-per-piece").value = s.grams_per_piece ?? "";
     $("#f-notes").value = s.notes || "";
@@ -547,11 +579,7 @@ async function submitFood(ev) {
     base_amount: Number($("#f-base-amount").value) || 100,
     energy: Number($("#f-energy").value),
     energy_unit: $("#f-energy-unit").value,
-    protein: numOrNull("#f-protein"),
-    carbs: numOrNull("#f-carbs"),
-    fat: numOrNull("#f-fat"),
-    sugar: numOrNull("#f-sugar"),
-    fiber: numOrNull("#f-fiber"),
+    ...Object.fromEntries(FOOD_FIELDS.map((n) => [n, numOrNull("#" + FIELD_ID[n])])),
     grams_per_ml: Number($("#f-g-per-ml").value) || 1,
     grams_per_piece: numOrNull("#f-g-per-piece"),
     notes: $("#f-notes").value.trim(),
@@ -601,9 +629,10 @@ async function deleteFood(id) {
 /* ============================================================== people */
 
 function renderTargetFields() {
-  $("#target-grid").innerHTML = NUTRIENTS.map((n) => {
-    const unit = n === "energy" ? "kJ" : "g";
-    return `<label>${state.config.labels[n]} (${unit})
+  $("#target-grid").innerHTML = ["energy", ...FOOD_FIELDS].map((n) => {
+    const unit = state.config.units[n];
+    const note = MINOR.includes(n) ? ' <span class="t-note">summarised</span>' : "";
+    return `<label>${state.config.labels[n]} (${unit})${note}
       <input type="number" step="any" min="0" id="t-${n}" placeholder="off" /></label>`;
   }).join("");
 }
@@ -1132,10 +1161,11 @@ async function loadScorecard() {
 async function loadTargets() {
   const p = state.persons.find((x) => x.id === state.personId);
   if (!p) return;
-  NUTRIENTS.forEach((n) => {
-    const key = n === "energy" ? "target_energy_kj" : `target_${n}_g`;
-    $("#t-" + n).value = p[key] === null || p[key] === undefined ? "" : fmtRaw(p[key], 1);
-  });
+  for (const n of ["energy", ...FOOD_FIELDS]) {
+    const key = state.config.target_columns[n];
+    const v = p[key];
+    $("#t-" + n).value = v === null || v === undefined ? "" : fmtRaw(v, 1);
+  }
 }
 
 async function saveTargets() {
@@ -1145,13 +1175,14 @@ async function saveTargets() {
   const body = {
     name: p.name, dob: p.dob, sex: p.sex, sex_offset_kcal: p.sex_offset_kcal,
     height_cm: p.height_cm, activity_multiplier: p.activity_multiplier,
-    target_energy_kj: numOrNull("#t-energy") !== null ? toKj(numOrNull("#t-energy")) : null,
-    target_protein_g: numOrNull("#t-protein"),
-    target_carbs_g: numOrNull("#t-carbs"),
-    target_fat_g: numOrNull("#t-fat"),
-    target_sugar_g: numOrNull("#t-sugar"),
-    target_fiber_g: numOrNull("#t-fiber"),
   };
+  // Built from the published column map so sodium lands in target_sodium_mg
+  // without the client hardcoding the suffix convention.
+  for (const n of ["energy", ...FOOD_FIELDS]) {
+    body[state.config.target_columns[n]] = numOrNull("#t-" + n);
+  }
+  body.target_energy_kj =
+    body.target_energy_kj !== null ? toKj(body.target_energy_kj) : null;
   try {
     await api(`/api/persons/${state.personId}`, { method: "PUT", body: JSON.stringify(body) });
     await reloadPersons();
@@ -1422,6 +1453,8 @@ function bindEvents() {
   $("#add-meal").innerHTML = state.config.meals
     .map((m) => `<option value="${m}">${m[0].toUpperCase() + m.slice(1)}</option>`).join("");
   $("#w-date").value = todayISO();
+  TILES = state.config.tiles;
+  MINOR = state.config.minor;
   syncUnitButtons();
   setKind("food");
   loadModelSettings();

@@ -49,11 +49,13 @@ with TestClient(app) as c:
     r = c.post("/api/foods", json={"name": "Pasta, dry", "brand": "Barilla",
                                    "base_amount": 250, "energy_unit": "kj",
                                    "energy": 3750, "carbs": 775, "protein": 125,
-                                   "fat": 15, "grams_per_ml": 0.45})
+                                   "fat": 15, "sodium": 30, "grams_per_ml": 0.45})
     assert r.status_code == 201, r.text
     pasta = r.json()
     check("per-250 g scaled to per-100 g energy", pasta["energy_kj"], 1500.0)
     check("per-250 g scaled carbs", pasta["per100"]["carbs"], 310.0)
+    check("sodium stored in mg and scaled like the rest", pasta["per100"]["sodium"], 12.0)
+    check("sodium unit is mg", c.get("/api/config").json()["units"]["sodium"], "mg")
     check_true("blank fields marked unknown",
                not pasta["known"]["sugar"] and not pasta["known"]["fiber"])
     check("base amount remembered for the edit form", pasta["base_amount"], 250.0)
@@ -95,9 +97,14 @@ with TestClient(app) as c:
     check("grams resolved across units", day["total_grams"], 200 + 100 + ML_G, 0.001)
     check("protein", day["totals"]["protein"], 62 + 50 + ML_G * 0.5, 0.01)
     check("carbs", day["totals"]["carbs"], 0 + 310 + ML_G * 3.1, 0.01)
+    # pasta is 12 mg sodium per 100 g, and the day's pasta totals 100 g + ML_G
+    check("sodium", day["totals"]["sodium"], (100 + ML_G) / 100 * 12.0, 0.01)
     check("protein fully covered", day["coverage"]["protein"], 1.0)
+    check("sodium covered only by the pasta", day["coverage"]["sodium"],
+          (100 + ML_G) / (200 + 100 + ML_G), 0.002)
     check_true("sugar flagged partial", day["partial"]["sugar"] is True)
     check_true("fiber flagged partial", day["partial"]["fiber"] is True)
+    check_true("sodium flagged partial", day["partial"]["sodium"] is True)
     check_true("protein not flagged", day["partial"]["protein"] is False)
 
     # ------------------------------------------------- macro coverage
@@ -110,6 +117,7 @@ with TestClient(app) as c:
     check_true("a fully-covered nutrient is not partial",
                day["partial"]["fat"] is False)
 
+    # Sugar totals zero when nothing has it
     d2 = "2026-01-16"
     c.post("/api/entries", json={"person_id": pid, "food_id": pasta["id"],
                                  "date": d2, "meal": "dinner", "amount": 100, "unit": "g"})
@@ -118,6 +126,22 @@ with TestClient(app) as c:
           day2["totals"]["sugar"], None)
     check("coverage says zero", day2["coverage"]["sugar"], 0.0)
     check_true("and it is flagged", day2["partial"]["sugar"] is True)
+
+    # --------------------------------------------------- tile grouping
+    print("\n--- which nutrients get a tile ---")
+    cfg = c.get("/api/config").json()
+    check("tiles are the steer-the-diet fields",
+          sorted(cfg["tiles"]), ["carbs", "fat", "protein", "sodium"])
+    check("sugar and fiber are summarised, not dropped",
+          sorted(cfg["minor"]), ["fiber", "sugar"])
+    check("every nutrient is a tile or summarised or energy",
+          sorted(cfg["tiles"] + cfg["minor"] + ["energy"]), sorted(cfg["nutrients"]))
+    check_true("sugar is still recorded and targetable",
+               "sugar" in cfg["columns"] and cfg["target_columns"]["sugar"] ==
+               "target_sugar_g")
+    check_true("sodium target has the mg suffix",
+               cfg["target_columns"]["sodium"] == "target_sodium_mg")
+    check_true("sodium is a tile", "sodium" in cfg["tiles"])
 
     # ---------------------------------------------------------- units
     print("\n--- display unit switching ---")

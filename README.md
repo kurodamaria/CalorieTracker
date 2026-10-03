@@ -208,16 +208,21 @@ This is a deliberate design constraint, not a feature list.
 - **Missing nutrient values are surfaced, never silently zeroed.** Each nutrient
   carries a *coverage* figure — the share of the day's food that actually had a
   value. Affected tiles are outlined and annotated (`~8% of today's food has no
-  sugar value`). A nutrient nothing was recorded for reads **`no data`**, never
+  sodium value`). A nutrient nothing was recorded for reads **`no data`**, never
   `0 g`.
+- **Macros get a tile; patchy fields get a line.** Carbs, protein, fat and sodium
+  each get a tile with its own target and its own completeness warning. Sugar and
+  fiber are still recorded, summed and targetable, but share one summary line —
+  labels are patchy for exactly those two, and a row of six amber tiles trains you
+  to ignore the warnings that matter.
 - **Energy is required** when creating a blueprint. But if a row somehow has
   none, the day falls back to Atwater factors (17/17/37 kJ per g) and is tagged
   `est.`; with nothing at all it reports `unavailable` rather than `0`.
 - **Cold start is labelled.** With a weight but no food history the projection
   runs off the formula and is stamped *uncalibrated*, with a note on what to do
   about it. With no weight at all it refuses and says so.
-- **Activity never touches macros.** A 10 km run cannot subtract 40 g of protein.
-  Activity reduces the energy total and nothing else.
+- **Activity never touches macros.** A 10 km run cannot subtract 40 g of protein
+  or 50 mg of sodium. Activity reduces the energy total and nothing else.
 
 ---
 
@@ -230,8 +235,10 @@ This is a deliberate design constraint, not a feature list.
 - **Values may be entered per any gram amount**, default 100 g. Enter 250 when
   that is what the label says; it is rescaled to per-100 g on save, so foods stay
   comparable and every log calculation stays a multiplication.
-- **Only energy is required.** Protein, carbs, fat, sugar and fiber are optional,
-  and the app tells you when a total is incomplete rather than pretending.
+- **Only energy is required.** Carbs, protein, fat, sodium, sugar and fiber are
+  all optional, and the app tells you when a total is incomplete rather than
+  pretending. Sodium is stored in **milligrams**, as every label states it; the
+  rest are grams and energy is kJ.
 - **Logging units are g, ml and piece.** `piece` only appears once a
   grams-per-piece weight is set — logging "2 pieces" of something with no weight
   defined is rejected, not guessed.
@@ -254,7 +261,7 @@ app/
   static/        style.css, app.js — hand-rolled SVG charts, zero JS deps
 tests/
   test_body.py       model maths, checked against planted answers
-  test_core.py       blueprints, units, coverage, CRUD
+  test_core.py       blueprints, units, nutrients, coverage, CRUD
   test_people.py     people, weights, records, activities, forecasts, scoring
   test_migration.py  old schema -> new; data preserved, idempotent
   test_ui.py         drives real Chromium; fails on any console error
@@ -268,7 +275,7 @@ known answers instead of being inferred from the UI.
 
 ## Tests
 
-**276 checks, no test framework**, every one against a throwaway database.
+**302 checks, no test framework**, every one against a throwaway database.
 
 ```powershell
 python tests/test_body.py        # model maths

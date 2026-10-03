@@ -1,4 +1,5 @@
 """Verify the schema migration preserves an existing database."""
+import json
 import os
 import shutil
 import sqlite3
@@ -127,9 +128,66 @@ check_true("fresh db has persons/weights/forecasts/entries",
 check_true("fresh entries has person_id NOT NULL",
            [r["name"] for r in c2.execute("PRAGMA table_info(entries)")]
            .count("person_id") == 1)
-check_true("fresh foods defaults seeded",
-           c2.execute("SELECT COUNT(*) n FROM settings").fetchone()["n"] == 11)
+check_true("fresh foods has sodium_mg",
+           "sodium_mg" in [r["name"] for r in c2.execute("PRAGMA table_info(foods)")])
+check_true("fresh persons has target_sodium_mg",
+           "target_sodium_mg" in [r["name"] for r in
+                                  c2.execute("PRAGMA table_info(persons)")])
+n_settings = c2.execute("SELECT COUNT(*) n FROM settings").fetchone()["n"]
+check_true("fresh defaults seeded incl. target_sodium", n_settings == 12, f"{n_settings}")
+check_true("sodium default is 2000 mg",
+           c2.execute("SELECT value FROM settings WHERE key='target_sodium'")
+           .fetchone()["value"] == "2000")
 c2.close()
+
+# A database from *before* sodium existed: people and food present, no sodium
+# column anywhere. The migration must add it without touching existing values.
+print("\n--- pre-sodium database gains the columns ---")
+old = os.path.join(tmp, "pre_sodium.db")
+oc = sqlite3.connect(old)
+oc.executescript("""
+    CREATE TABLE persons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, dob TEXT NOT NULL,
+        sex TEXT NOT NULL DEFAULT 'other', sex_offset_kcal REAL NOT NULL DEFAULT 0.0,
+        height_cm REAL NOT NULL, activity_multiplier REAL NOT NULL DEFAULT 1.2,
+        target_energy_kj REAL, target_protein_g REAL, target_carbs_g REAL,
+        target_fat_g REAL, target_sugar_g REAL, target_fiber_g REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE foods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, brand TEXT,
+        kind TEXT NOT NULL DEFAULT 'food', base_amount REAL NOT NULL DEFAULT 100,
+        base_unit TEXT NOT NULL DEFAULT 'kj', energy_kj REAL NOT NULL,
+        protein_g REAL, carbs_g REAL, fat_g REAL, sugar_g REAL, fiber_g REAL,
+        grams_per_ml REAL NOT NULL DEFAULT 1.0, grams_per_piece REAL, notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+""")
+oc.execute("INSERT INTO persons (name, dob, height_cm, target_energy_kj)"
+           " VALUES ('Existing', '1990-01-01', 180, 9000)")
+oc.execute("INSERT INTO foods (name, energy_kj, protein_g, carbs_g, fat_g)"
+           " VALUES ('Old food', 500, 10, 20, 5)")
+oc.commit()
+oc.close()
+
+notes = json.loads(run_migrate(old))
+check_true("reported the two new columns",
+           "foods: adding sodium_mg" in notes and
+           "persons: adding target_sodium_mg" in notes, str(notes))
+oc = sqlite3.connect(old)
+oc.row_factory = sqlite3.Row
+check_true("foods gained sodium_mg",
+           "sodium_mg" in [r["name"] for r in oc.execute("PRAGMA table_info(foods)")])
+check_true("persons gained target_sodium_mg",
+           "target_sodium_mg" in [r["name"] for r in
+                                  oc.execute("PRAGMA table_info(persons)")])
+f = oc.execute("SELECT * FROM foods").fetchone()
+check_true("existing food kept its values",
+           (f["name"], f["energy_kj"], f["protein_g"]) == ("Old food", 500, 10))
+check_true("and sodium starts empty, not zero", f["sodium_mg"] is None)
+p = oc.execute("SELECT * FROM persons").fetchone()
+check_true("existing person kept its target", p["target_energy_kj"] == 9000)
+check_true("and sodium target starts empty", p["target_sodium_mg"] is None)
+oc.close()
+check_true("second run over it is a no-op", json.loads(run_migrate(old)) == [])
 
 print()
 if fails:
