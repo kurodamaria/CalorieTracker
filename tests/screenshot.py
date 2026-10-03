@@ -16,7 +16,9 @@ from app import repo  # noqa: E402
 from app.db import db, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 
-OUT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                   "docs", "screenshots")
+os.makedirs(OUT, exist_ok=True)
 PORT = 8781
 init_db()
 server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error"))
@@ -125,23 +127,41 @@ def seed():
         return pid
 
 
+SHOT_CSS = """
+  /* A sticky header lands mid-page in a full-page capture and covers content.
+     Pin it to the top of the document for the shot instead. */
+  header { position: static !important; }
+  /* toasts are transient; never let one land in a screenshot */
+  .toast { display: none !important; }
+  html { scroll-behavior: auto !important; }
+"""
+
+
 def main():
-    pid = seed()
+    seed()
     base = f"http://127.0.0.1:{PORT}/"
     with sync_playwright() as p:
         b = p.chromium.launch()
-        page = b.new_page(viewport={"width": 1360, "height": 1000})
+        page = b.new_page(viewport={"width": 1280, "height": 900},
+                          device_scale_factor=2)
         page.goto(base, wait_until="networkidle")
+        page.add_style_tag(content=SHOT_CSS)
         page.wait_for_function(
             "() => document.querySelectorAll('#person-select option').length === 2")
         page.select_option("#person-select", label="Test Person")
         page.wait_for_timeout(1200)
+        shot(page, "log.png")
 
-        page.screenshot(path=os.path.join(OUT, "shot-log.png"), full_page=True)
+        page.click('[data-view="foods"]')
+        page.wait_for_timeout(700)
+        shot(page, "database-foods.png")
+        page.click('.kind-btn[data-kind="activity"]')
+        page.wait_for_timeout(500)
+        shot(page, "database-activities.png")
 
         page.click('[data-view="people"]')
         page.wait_for_timeout(900)
-        page.screenshot(path=os.path.join(OUT, "shot-people.png"), full_page=True)
+        shot(page, "people.png")
 
         page.click('[data-view="predict"]')
         page.wait_for_function(
@@ -153,20 +173,28 @@ def main():
             timeout=30000)
         page.check("#forecast-table input[type=checkbox]")
         page.wait_for_timeout(900)
-        page.screenshot(path=os.path.join(OUT, "shot-predict.png"), full_page=True)
+        shot(page, "predict-weight.png")
 
         page.click('.ct[data-series="intake"]')
         page.wait_for_timeout(900)
-        page.screenshot(path=os.path.join(OUT, "shot-intake.png"), full_page=True)
+        shot(page, "predict-intake.png")
 
-        page.click('[data-view="foods"]')
+        page.click('.ct[data-series="bmi"]')
+        page.wait_for_timeout(900)
+        shot(page, "predict-bmi.png")
+
+        page.click('[data-view="targets"]')
         page.wait_for_timeout(700)
-        page.screenshot(path=os.path.join(OUT, "shot-foods.png"), full_page=True)
-        page.click('.kind-btn[data-kind="activity"]')
-        page.wait_for_timeout(500)
-        page.screenshot(path=os.path.join(OUT, "shot-activities.png"), full_page=True)
+        shot(page, "targets.png")
         b.close()
-    print("screenshots written")
+    print(f"screenshots written to {OUT}")
+
+
+def shot(page, name, full=True):
+    # let any transient toast expire so it cannot appear in the capture
+    page.wait_for_timeout(2900)
+    page.add_style_tag(content=SHOT_CSS)
+    page.screenshot(path=os.path.join(OUT, name), full_page=full)
 
 
 try:

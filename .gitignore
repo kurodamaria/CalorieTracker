@@ -1,5 +1,14 @@
 __pycache__/
 *.pyc
-calorie_tracker.db
-*.png
 .venv/
+
+# your data never belongs in git
+calorie_tracker.db
+calorie_tracker.db-wal
+calorie_tracker.db-shm
+
+# generated scratch output...
+*.png
+
+# ...except the screenshots the README embeds, which are committed on purpose
+!docs/screenshots/*.png

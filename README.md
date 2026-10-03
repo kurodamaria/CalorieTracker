@@ -1,222 +1,312 @@
+<div align="center">
+
 # CalorieTracker
 
-A local, multi-person calorie and body-composition tracker. You build your own
-food database by typing what is on the package, log foods and exercise by how
-much you had, and the app fits *your* daily energy burn from your own weight
-history so it can project where you are heading.
+**A local, multi-person calorie and body-composition tracker.**
 
-One local SQLite file. No accounts, no cloud, no API keys.
+You build your own food database by typing what is on the package.
+Log foods and exercise by how much you had.
+The app fits *your* daily energy burn from *your* weight history,
+then projects where you are heading.
+
+No accounts · no cloud · no API keys · one SQLite file
+
+</div>
+
+---
+
+## Screenshots
+
+### The day view
+
+Net energy, activity shown honestly, and coverage warnings where your data is
+incomplete.
+
+![Daily log with records grouped by meal and an activity group](docs/screenshots/log.png)
+
+### The projection
+
+Your weigh-ins on the left, today marked, and a band from 1500 simulated
+futures. Horizons from 7 to 365 days.
+
+![Weight projection with percentile bands and a horizon table](docs/screenshots/predict-weight.png)
+
+### Intake vs. burn
+
+Simulated future intake against the fitted burn — so you can see *why* the
+weight curve bends.
+
+![Simulated intake and activity against daily burn](docs/screenshots/predict-intake.png)
+
+### The same projection, in BMI
+
+![BMI projection](docs/screenshots/predict-bmi.png)
+
+### Body metrics
+
+Fitted burn beside the formula estimate, with the scatter and how many days it
+used. They converge as your history builds.
+
+![Body metrics, both burn estimates, and a weight curve](docs/screenshots/people.png)
+
+### Your database
+
+Foods and activities in separate lists. Activities carry negative energy.
+
+![Food database](docs/screenshots/database-foods.png)
+
+![Activity list, showing energy burned](docs/screenshots/database-activities.png)
+
+### Targets and model constants
+
+Per-person daily targets, plus the four constants you can argue with: energy per
+kg, calibration window, simulation paths, and the intake lag kernel.
+
+![Targets and model settings](docs/screenshots/targets.png)
+
+---
+
+## Quick start
 
 ```powershell
 python -m pip install -r requirements.txt
-python run.py          # http://127.0.0.1:8000
+python run.py
 ```
 
-## The vocabulary
+Then open <http://127.0.0.1:8000>. Requires Python 3.10+; no build step.
 
-This distinction runs through the whole app, so it is worth stating plainly:
+On first run you create a person, then add a few foods, then start logging.
 
-- A **blueprint** (food or activity) is the reusable definition. `煮鸡蛋`, 649 kJ
-  per 100 g. It belongs to nobody.
-- A **record** is one instance of a blueprint, attributed to exactly **one**
-  person, on one day, in a given amount. Sam ate 2 pieces at breakfast today.
+---
+
+## The one idea to understand
+
+This distinction runs through the whole codebase:
+
+| | what it is | belongs to |
+| --- | --- | --- |
+| **blueprint** | the reusable definition — `煮鸡蛋`, 649 kJ per 100 g | nobody |
+| **record** | one instance of a blueprint, in an amount, on a day | exactly one person |
 
 Blueprints are shared by everyone. Records are private to their person. A record
-never gets split between people — if two people ate the same thing, that is two
-records.
+is **never** split between people — if two people ate the same thing, that is
+two records.
 
-## Screens
-
-**Log** — daily totals for whoever the header has selected. Energy against
-target, a tile per macro, records grouped by meal with activity in its own
-group.
-
-**Database** — foods and activities, in two filtered lists. Foods are per any
-gram amount (default 100 g); activities are per session and must carry negative
-energy.
-
-**People** — each person's date of birth, height, sex constant and movement
-multiplier; their weight log; and a weight curve.
-
-**Predict** — the projection: weight, BMI, and simulated intake-vs-burn, with a
-horizon table and the forecast archive.
-
-**Targets & units** — per-person daily targets, the global energy unit, and the
-model constants.
+---
 
 ## How the energy model works
 
 ```
-Δweight/day = (food − logged activity − burn) / 32213 kJ/kg
+Δweight/day  =  ( food − logged activity − burn ) / 32213 kJ/kg
 ```
 
-`burn` is everything you spend that is **not** deliberate logged activity.
-The app estimates it two ways and prefers the measured one:
+`burn` is everything you spend that is **not** deliberate logged activity:
+resting metabolism, everyday movement, and the thermic effect of food. It is
+estimated two ways, and the measured one wins as soon as it is available:
 
-| | source | available |
+| | method | available |
 | --- | --- | --- |
 | **formula** | Mifflin-St Jeor BMR × movement multiplier | immediately |
-| **fitted** | solved from your weight + intake history | after ~7 days with 2 weigh-ins |
+| **fitted** | closed-form least squares on your weight + intake history | after ~7 days with 2 weigh-ins |
 
-Fitting is a closed-form least squares with one unknown:
+Fitting has one unknown and a fixed slope, so it is exact rather than iterative:
 
 ```
 burn = mean( lagged_intake − Δweight × 32213 )
 ```
 
-Three details that matter:
+Three details that matter more than they look:
 
-- **The lag kernel.** Today's scale reflects the last few days of eating, not
-  just today, so intake is passed through a 4-day kernel before the comparison.
-  Editable; values are normalised on save.
-- **Interpolated, never extrapolated, weight.** Weigh-ins are spread linearly
-  between them, and the series stops at your most recent weigh-in. The model
+- **A 4-day intake lag kernel.** Today's scale reflects several days of eating,
+  not just today — water, glycogen, gut contents. Intake is smoothed before the
+  comparison, which keeps the fit from chasing noise.
+- **Weight is interpolated, never extrapolated.** Weigh-ins are spread linearly
+  between them and the series stops at your most recent weigh-in. The model
   never claims to know a weight you have not measured.
 - **A plausibility guard.** If the fitted burn lands outside 0.5×–2× the formula
-  estimate, it is rejected and the formula is used instead, with a message. One
-  mistyped weight or one record logged in the wrong unit would otherwise imply a
-  burn of 1 MJ/day and produce a nonsense forecast.
+  estimate it is rejected and the formula is used instead, with an explanation.
+  One mistyped weight, or one record logged in the wrong unit, would otherwise
+  imply a burn of 1 MJ/day and produce a completely fictional forecast.
 
-Accuracy, measured in `tests/test_body.py` against synthetic people whose true
-burn is planted: recovers 7968/9969/12470 kJ against planted 8000/10000/12500,
-and stays within 1% at activity frequencies from daily to every 30th day.
+**Measured accuracy.** `tests/test_body.py` generates synthetic people whose true
+burn is planted in advance. The fit recovers 7968 / 9969 / 12470 kJ against
+planted 8000 / 10000 / 12500, and holds within 1% whether exercise is logged
+daily or every 30th day.
+
+---
 
 ## How the projection works
 
-The uncertainty is in the **inputs**, not the weight. Weight is the integral of
-the balance, so simulating it directly compounds error into a random walk whose
-band is useless within a year.
+**Uncertainty is placed in the inputs, never in the weight.** Weight is the
+integral of the energy balance, so simulating it directly compounds error into a
+random walk whose band is useless within a year. Instead:
 
-Instead:
-
-1. Collect the person's completed days (today is never used — an incomplete day
-   would drag the fit).
+1. Take the person's **completed** days. Today is never used — an unfinished day
+   would drag the fit.
 2. Resample realistic future intake by **block bootstrap**: draw real 3–7 day
-   blocks, stratified by day-of-week, keeping each day's intake paired with its
-   activity. This preserves the weekly rhythm and the serial correlation without
-   estimating a transition matrix that 30 days of data cannot support.
-3. Push each of ~1500 paths through the deterministic equation above.
-4. Report percentiles.
+   blocks, stratified by day of week, keeping each day's intake paired with its
+   activity. This preserves the weekly rhythm and serial correlation.
+3. Push ~1500 paths through the deterministic equation above.
+4. Report percentiles, and draw burn uncertainty into each path so parameter
+   error shows up in the band instead of being hidden.
 
-The result is a band that is tight at two weeks and honest at a year, rather
-than uniformly vague or falsely precise.
+The result is tight at two weeks and honest at a year — rather than uniformly
+vague, or falsely precise.
 
-Burn uncertainty is drawn per path too, so parameter error propagates into the
-band instead of being hidden.
-
-The seed is derived from the person, the as-of date and the inputs, so
-re-rendering the chart does not make it jitter.
-
-## Why block bootstrap rather than a Markov chain
+### Why not a Markov chain?
 
 A first-order Markov chain over intake needs a K×K transition matrix: roughly
-200–400 days of data for 5 states. With a 30-day window you would be fitting 20
-parameters from 30 observations, and a confidently-wrong matrix produces bands
-that are *too narrow* — precise exactly when it has no right to be.
+200–400 days of data for 5 states. With a 30-day calibration window you would be
+fitting 20 parameters from 30 observations, and a confidently-wrong matrix
+produces bands that are *too narrow* — precise exactly when it has no right to be.
 
-Measured day-to-day energy-intake autocorrelation in adults is weak (r ≈ 0.1–0.3),
-so at that level "tomorrow ≈ your mean" is nearly as good a forecast and the
-simulated paths come out nearly identical to plain resampling. The block
-bootstrap delivers the same "future looks like the past, dependence included"
-with zero fitted parameters.
+Measured day-to-day energy-intake autocorrelation in adults is weak
+(r ≈ 0.1–0.3). At that level "tomorrow ≈ your mean" is nearly as good a
+forecast, so the simulated paths come out almost identical to plain resampling.
+The block bootstrap gives the same *future looks like the past, dependence
+included* with zero fitted parameters.
 
-## Forecast archive and scoring
+---
 
-*Save this forecast* freezes the current projection with the parameters it was
-made from: burn, kJ/kg, lag kernel, seed, model version. Snapshots are immutable
-on purpose — if old forecasts were silently recomputed with a better model, you
-could never tell whether it had actually improved.
+## The forecast archive, and scoring it against reality
 
-Once a horizon date arrives and there is a real weigh-in near it, each forecast
-is scored:
+**Save this forecast** freezes the current projection together with the
+parameters it was made from: fitted burn, kJ/kg, lag kernel, seed, model
+version. Snapshots are immutable on purpose — if old forecasts were silently
+recomputed with an improved model, you could never tell whether it had actually
+got better.
 
-- **MAE** — mean absolute error in kg
-- **Bias** — signed. Positive means you weighed more than predicted.
-- **Within 1 kg** — how often the median was close
-- **In band** — how often reality landed inside the 5–95% band. If this is far
-  below 90% the band is lying about its own confidence; far above means it is
-  needlessly wide.
+Once a horizon date passes and there is a real weigh-in near it, every saved
+forecast is scored:
 
-A horizon with no weigh-in within ±4 days is skipped, not scored against a
-stale number.
+| metric | meaning |
+| --- | --- |
+| **MAE** | mean absolute error, kg |
+| **Bias** | signed. Positive = you weighed more than predicted |
+| **Within 1 kg** | how often the median was close |
+| **In band** | how often reality landed inside the 5–95% band |
 
-Tick any subset of saved forecasts to overlay them on the chart.
+That last one is the honesty check on the model itself: far below 90% and the
+band is lying about its own confidence; far above and it is needlessly wide.
+
+A horizon with no weigh-in within ±4 days is skipped rather than scored against
+a stale number. Tick any subset of saved forecasts to overlay them on the chart.
+
+---
 
 ## Honest reporting
 
-- **Missing nutrients are shown, not filled in silently.** Each nutrient carries
-  a coverage figure — the share of the day's food that actually had a value.
-  Affected tiles are outlined in amber and annotated (`~8% of today's food has
-  no sugar value`). A nutrient nothing was recorded for reads `no data`, never
-  `0 g`.
-- **Energy is required**, but if a row somehow has none, the day falls back to
-  Atwater factors (17/17/37 kJ per g) and is tagged `est.`; with nothing at all
-  it reports `unavailable` rather than `0`.
-- **Cold start is labelled.** With no weight data the projection runs off the
-  formula and is stamped *uncalibrated*, with what to do about it. With no weight
-  at all it refuses and says so.
-- **Activity never touches macros.** A 10 km run cannot subtract 40 g of protein.
+This is a deliberate design constraint, not a feature list.
 
-## Layout
+- **Missing nutrient values are surfaced, never silently zeroed.** Each nutrient
+  carries a *coverage* figure — the share of the day's food that actually had a
+  value. Affected tiles are outlined and annotated (`~8% of today's food has no
+  sugar value`). A nutrient nothing was recorded for reads **`no data`**, never
+  `0 g`.
+- **Energy is required** when creating a blueprint. But if a row somehow has
+  none, the day falls back to Atwater factors (17/17/37 kJ per g) and is tagged
+  `est.`; with nothing at all it reports `unavailable` rather than `0`.
+- **Cold start is labelled.** With a weight but no food history the projection
+  runs off the formula and is stamped *uncalibrated*, with a note on what to do
+  about it. With no weight at all it refuses and says so.
+- **Activity never touches macros.** A 10 km run cannot subtract 40 g of protein.
+  Activity reduces the energy total and nothing else.
+
+---
+
+## Design decisions
+
+- **Energy is stored in kJ**, because most packaging prints kJ. Each blueprint
+  remembers the unit it was typed in, so editing a kcal-entered food brings the
+  kcal selector back. Everything else follows one global display setting.
+  Conversion is exact: 1 kcal = 4.184 kJ.
+- **Values may be entered per any gram amount**, default 100 g. Enter 250 when
+  that is what the label says; it is rescaled to per-100 g on save, so foods stay
+  comparable and every log calculation stays a multiplication.
+- **Only energy is required.** Protein, carbs, fat, sugar and fiber are optional,
+  and the app tells you when a total is incomplete rather than pretending.
+- **Logging units are g, ml and piece.** `piece` only appears once a
+  grams-per-piece weight is set — logging "2 pieces" of something with no weight
+  defined is rejected, not guessed.
+- **Targets are per person.** Blank a field to switch that metric off.
+- **Your database stays yours.** `calorie_tracker.db` is gitignored and is never
+  uploaded anywhere by this project.
+
+---
+
+## Project layout
 
 ```
 app/
-  db.py          schema + migration (no ORM, no external DB)
-  body.py        BMR, weight interpolation, lag kernel, burn fit, block bootstrap
+  db.py          schema + non-destructive migration (no ORM, no external DB)
+  body.py        BMR, weight interpolation, lag kernel, burn fit, bootstrap
   nutrition.py   unit conversion, per-100 g normalisation, coverage aggregation
   repo.py        queries: blueprints, records, people, weights, forecasts
   main.py        FastAPI routes + request validation
   templates/     single page
-  static/        style.css, app.js (hand-rolled SVG charts, no JS dependencies)
+  static/        style.css, app.js — hand-rolled SVG charts, zero JS deps
 tests/
-  test_body.py      model maths; recovers planted burns
-  test_core.py      blueprints, units, coverage, CRUD
-  test_people.py    people, weights, records, activities, forecasts, scoring
-  test_migration.py old database -> new schema, data preserved
-  test_ui.py        real Chromium; fails on any console error
-  screenshot.py     renders shot-*.png from a demo dataset
+  test_body.py       model maths, checked against planted answers
+  test_core.py       blueprints, units, coverage, CRUD
+  test_people.py     people, weights, records, activities, forecasts, scoring
+  test_migration.py  old schema -> new; data preserved, idempotent
+  test_ui.py         drives real Chromium; fails on any console error
+  screenshot.py      regenerates the images in docs/screenshots/
 ```
 
-`body.py` has no I/O, which is why the maths can be tested directly against
-known answers.
+`body.py` performs no I/O, which is why the maths can be tested directly against
+known answers instead of being inferred from the UI.
+
+---
 
 ## Tests
 
-```powershell
-python tests/test_body.py
-python tests/test_core.py
-python tests/test_people.py
-python tests/test_migration.py
+**276 checks, no test framework**, every one against a throwaway database.
 
-# browser tests need: pip install playwright; playwright install chromium
+```powershell
+python tests/test_body.py        # model maths
+python tests/test_core.py        # blueprints, units, coverage
+python tests/test_people.py      # people, forecasts, scoring
+python tests/test_migration.py   # schema migration
+
+# browser tests:
+python -m pip install playwright
+python -m playwright install chromium
 python tests/test_ui.py
-python tests/screenshot.py     # writes shot-*.png
+
+python tests/screenshot.py       # regenerate docs/screenshots/
 ```
 
-All use throwaway databases; your real data is never touched.
+---
 
 ## API
 
-Interactive docs at `/docs`.
+Interactive docs at `/docs` once the server is running.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/config` | settings, people, constants |
-| `GET` | `/api/foods?kind=food\|activity` | list; per-100 g in the display unit |
+| `GET` | `/api/foods?kind=food\|activity` | list, per-100 g in the display unit |
 | `POST` `PUT` `DELETE` | `/api/foods[/{id}]` | blueprints |
 | `POST` | `/api/foods/{id}/derive-energy` | estimate energy from macros |
-| `GET` `POST` `PUT` `DELETE` | `/api/persons[/{id}]` | people (targets live here) |
+| `GET` `POST` `PUT` `DELETE` | `/api/persons[/{id}]` | people; targets live here |
 | `GET` | `/api/persons/{id}/metrics` | weight, BMI, BMR, both burn estimates |
-| `GET` `POST` | `/api/persons/{id}/weights` | weight log (one per day) |
-| `POST` | `/api/entries` | record |
-| `DELETE` | `/api/entries/{id}` | remove record |
+| `GET` `POST` | `/api/persons/{id}/weights` | weight log, one per day |
+| `POST` `DELETE` | `/api/entries[/{id}]` | records |
 | `GET` | `/api/day/{date}?person_id=` | totals, coverage, per-meal, targets |
 | `GET` | `/api/history?person_id=&days=` | recent days |
 | `GET` | `/api/persons/{id}/forecast?save=true` | project, optionally freeze |
-| `GET` `DELETE` | `/api/persons/{id}/forecasts`, `/api/forecasts/{id}` | archive + scorecard |
+| `GET` | `/api/persons/{id}/forecasts` | archive + scorecard |
 | `PUT` | `/api/settings` | display unit, model constants |
+
+---
+
+## Licence
+
+Not yet chosen — see the repository page. Add a `LICENSE` file before relying on
+this for anything.
 
 ## Not built
 
 Recipes, barcode scanning, favourites, body-fat percentage, CSV export, cloud
-sync. The schema has room; they are simply not there.
+sync, multi-user auth. The schema has room for them; they are simply not there.
