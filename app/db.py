@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 
 DB_PATH = Path(
@@ -24,14 +25,26 @@ CREATE TABLE IF NOT EXISTS persons (
     sex_offset_kcal     REAL    NOT NULL DEFAULT 0.0,
     height_cm           REAL    NOT NULL,
     activity_multiplier REAL    NOT NULL DEFAULT 1.2,
-    target_energy_kj    REAL,
-    target_protein_g    REAL,
-    target_carbs_g      REAL,
-    target_fat_g        REAL,
-    target_sugar_g      REAL,
-    target_fiber_g      REAL,
-    target_sodium_mg    REAL,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Targets are a protocol, not an identity: a person changes what they are aiming
+-- for, and history has to keep judging each day against the goal that was
+-- actually in force then. One row per target set, effective from `effective_on`
+-- (inclusive) until a later row supersedes it.
+CREATE TABLE IF NOT EXISTS person_targets (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id         INTEGER NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+    effective_on      TEXT    NOT NULL,                    -- YYYY-MM-DD, inclusive
+    target_energy_kj  REAL,
+    target_protein_g  REAL,
+    target_carbs_g    REAL,
+    target_fat_g      REAL,
+    target_sugar_g    REAL,
+    target_fiber_g    REAL,
+    target_sodium_mg  REAL,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (person_id, effective_on)
 );
 
 CREATE TABLE IF NOT EXISTS weights (
@@ -174,13 +187,8 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
         person_id = None
         if legacy:
             cur = conn.execute(
-                "INSERT INTO persons (name, dob, height_cm, target_energy_kj,"
-                " target_protein_g, target_carbs_g, target_fat_g, target_sugar_g,"
-                " target_fiber_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("Me", "1990-01-01", 170.0,
-                 *[float(get_settings(conn).get(f"target_{n}", "") or 0) or None
-                   for n in ("energy", "protein", "carbs", "fat", "sugar", "fiber")]),
-            )
+                "INSERT INTO persons (name, dob, height_cm) VALUES (?, ?, ?)",
+                ("Me", "1990-01-01", 170.0))
             person_id = cur.lastrowid
             for r in legacy:
                 conn.execute(
@@ -192,6 +200,7 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
             notes.append(f"moved {len(legacy)} record(s) to a default person")
 
     conn.executescript(SCHEMA)
+    _migrate_person_targets(conn, notes)
     if _table_exists(conn, "foods") and "kind" not in _columns(conn, "foods"):
         notes.append("foods: adding kind")
         conn.execute("ALTER TABLE foods ADD COLUMN kind TEXT NOT NULL DEFAULT 'food'")
@@ -203,12 +212,72 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     return notes
 
 
+TARGET_COLUMNS = ("target_energy_kj", "target_protein_g", "target_carbs_g",
+                  "target_fat_g", "target_sugar_g", "target_fiber_g",
+                  "target_sodium_mg")
+
+
+def _first_data_day(conn: sqlite3.Connection, person_id: int) -> str | None:
+    """Earliest day this person has any data for."""
+    parts = []
+    for table, col in (("entries", "logged_on"), ("weights", "measured_on")):
+        if not _table_exists(conn, table):
+            continue
+        row = conn.execute(
+            f"SELECT MIN({col}) d FROM {table} WHERE person_id = ?",
+            (person_id,)).fetchone()
+        if row and row["d"]:
+            parts.append(row["d"])
+    return min(parts) if parts else None
+
+
+def _migrate_person_targets(conn: sqlite3.Connection, notes: list[str]) -> None:
+    """Move targets off the person row and onto dated rows.
+
+    The existing single set becomes one row effective from the start of that
+    person's data, so history renders exactly as it did before rather than
+    going blank for every past day. From then on, changes are dated.
+    """
+    if not _table_exists(conn, "persons"):
+        return
+    present = [c for c in TARGET_COLUMNS if c in _columns(conn, "persons")]
+    if not present:
+        return
+
+    today = date.today().isoformat()
+    moved = 0
+    for p in conn.execute("SELECT * FROM persons").fetchall():
+        if not any(p[c] is not None for c in present):
+            continue
+        effective = _first_data_day(conn, p["id"]) or today
+        conn.execute(
+            "INSERT OR IGNORE INTO person_targets"
+            " (person_id, effective_on, target_energy_kj, target_protein_g,"
+            "  target_carbs_g, target_fat_g, target_sugar_g, target_fiber_g,"
+            "  target_sodium_mg)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (p["id"], effective,
+             *[p.get(c) for c in TARGET_COLUMNS]))
+        moved += 1
+    if moved:
+        notes.append(f"targets: dated {moved} person target set(s) from their "
+                     f"first day of data")
+
+    for c in present:
+        try:
+            conn.execute(f"ALTER TABLE persons DROP COLUMN {c}")
+        except sqlite3.OperationalError:
+            # Older SQLite, or something else holds a reference. Harmless: no
+            # code reads these any more.
+            pass
+    notes.append("persons: targets moved to person_targets")
+
+
 # Columns added after the first release. A fresh database gets them from SCHEMA;
 # an existing one needs ALTER TABLE, and every one of these is nullable so the
 # statement is always safe.
 ADDED_COLUMNS = (
     ("foods", "sodium_mg", "REAL"),
-    ("persons", "target_sodium_mg", "REAL"),
 )
 
 

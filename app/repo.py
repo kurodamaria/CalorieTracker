@@ -76,9 +76,7 @@ def delete_food(conn: sqlite3.Connection, food_id: int) -> None:
 
 PERSON_COLUMNS = (
     "id", "name", "dob", "sex", "sex_offset_kcal", "height_cm",
-    "activity_multiplier", "target_energy_kj", "target_protein_g",
-    "target_carbs_g", "target_fat_g", "target_sugar_g", "target_fiber_g",
-    "target_sodium_mg",
+    "activity_multiplier",
 )
 
 
@@ -108,6 +106,61 @@ def update_person(conn: sqlite3.Connection, person_id: int, data: dict) -> None:
 
 def delete_person(conn: sqlite3.Connection, person_id: int) -> None:
     conn.execute("DELETE FROM persons WHERE id = ?", (person_id,))
+
+
+# ------------------------------------------------------- dated targets
+
+def target_sets(conn: sqlite3.Connection, person_id: int) -> list[dict]:
+    """Every target set for a person, oldest first."""
+    return conn.execute(
+        "SELECT * FROM person_targets WHERE person_id = ? ORDER BY effective_on",
+        (person_id,)).fetchall()
+
+
+def targets_on(conn: sqlite3.Connection, person_id: int, on: str) -> dict | None:
+    """The target set in force on a given day, or None if none had started yet."""
+    return conn.execute(
+        "SELECT * FROM person_targets WHERE person_id = ? AND effective_on <= ? "
+        "ORDER BY effective_on DESC LIMIT 1", (person_id, on)).fetchone()
+
+
+def targets_for(conn: sqlite3.Connection, person_id: int, on: str,
+                display_unit: str = "kj") -> dict:
+    """Targets resolved for one day, in the caller's display unit."""
+    row = targets_on(conn, person_id, on)
+    out: dict = {"effective_on": row["effective_on"] if row else None}
+    for n in N.NUTRIENTS:
+        v = row[N.target_column(n)] if row else None
+        if n == "energy" and v is not None and display_unit == "kcal":
+            v = v / N.KJ_PER_KCAL
+        out[n] = v
+    return out
+
+
+def current_targets(conn: sqlite3.Connection, person_id: int,
+                    display_unit: str = "kj") -> dict:
+    return targets_for(conn, person_id, date.today().isoformat(), display_unit)
+
+
+def save_targets(conn: sqlite3.Connection, person_id: int, effective_on: str,
+                 values: dict) -> dict:
+    """Create or replace the target set starting on a given day."""
+    # Built from NUTRIENTS rather than hand-listed: a hand-written column order
+    # that disagreed with the values order would silently put sodium's target in
+    # the sugar column, which is exactly the bug this avoids.
+    cols = [N.target_column(n) for n in N.NUTRIENTS]
+    marks = ",".join("?" * (len(cols) + 2))
+    conn.execute(
+        f"INSERT INTO person_targets (person_id, effective_on, {','.join(cols)})"
+        f" VALUES ({marks})"
+        f" ON CONFLICT(person_id, effective_on) DO UPDATE SET "
+        + ", ".join(f"{c} = excluded.{c}" for c in cols),
+        (person_id, effective_on, *[values.get(c) for c in cols]))
+    return targets_on(conn, person_id, effective_on)
+
+
+def delete_targets(conn: sqlite3.Connection, target_id: int) -> None:
+    conn.execute("DELETE FROM person_targets WHERE id = ?", (target_id,))
 
 
 # ---------------------------------------------------------------- weights
@@ -199,15 +252,10 @@ def day_summary(conn: sqlite3.Connection, person_id: int, logged_on: str,
     def disp(kj):
         return N.from_kj(kj, display_unit)
 
-    targets = {}
-    for n in N.NUTRIENTS:
-        value = person[N.target_column(n)]
-        if value is None:
-            targets[n] = None
-        elif n == "energy" and display_unit == "kcal":
-            targets[n] = value / N.KJ_PER_KCAL
-        else:
-            targets[n] = value
+    # Targets are resolved as of the day being viewed, so a past day is judged
+    # against the goal that was actually in force then rather than today's.
+    resolved = targets_for(conn, person_id, logged_on, display_unit)
+    targets = {n: resolved[n] for n in N.NUTRIENTS}
 
     by_meal = {}
     for meal in MEALS:
@@ -237,6 +285,8 @@ def day_summary(conn: sqlite3.Connection, person_id: int, logged_on: str,
         "total_grams": agg["total_grams"],
         "activity_count": agg["activity_count"],
         "targets": targets,
+        "targets_effective_on": resolved["effective_on"],
+        "targets_current": current_targets(conn, person_id, display_unit),
         "remaining": {n: (None if targets[n] is None or agg["totals"][n] is None
                           else targets[n] - (disp(agg["totals"][n]) if n == "energy"
                                              else agg["totals"][n]))
@@ -359,6 +409,7 @@ def person_metrics(conn: sqlite3.Connection, person_id: int,
         "person": person,
         "weight_now": weight_now,
         "weight_date": latest["measured_on"] if latest else None,
+        "targets": current_targets(conn, person_id, display_unit),
         "bmi_now": B.bmi(weight_now, person["height_cm"]) if weight_now else None,
         "bmi_band": (B.bmi_band(B.bmi(weight_now, person["height_cm"]))
                      if weight_now else None),
@@ -440,6 +491,18 @@ def build_forecast(conn: sqlite3.Connection, person_id: int, horizon_days: int =
                      seed=seed)
     summary = B.summarise(sim, metrics["person"]["height_cm"])
 
+    # "What if I ate exactly my target every day?" A single deterministic line:
+    # constant intake against the fitted burn, no intake variance at all.
+    target_kj = metrics["targets"].get("energy")
+    scenario = None
+    if target_kj:
+        scenario = {
+            "target_kj": target_kj,
+            "points": [weight_now + (i + 1) * (target_kj - burn) / metrics["kj_per_kg"]
+                       for i in range(horizon_days)],
+            "daily_change_kg": (target_kj - burn) / metrics["kj_per_kg"],
+        }
+
     return {
         "person_id": person_id,
         "as_of": today.isoformat(),
@@ -455,6 +518,7 @@ def build_forecast(conn: sqlite3.Connection, person_id: int, horizon_days: int =
         "n_paths": paths,
         "seed": seed,
         "summary": summary,
+        "target_scenario": scenario,
         "metrics": metrics,
     }
 

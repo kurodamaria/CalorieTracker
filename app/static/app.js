@@ -185,11 +185,17 @@ function renderSummary(d) {
 
   const heroTarget = $("#energy-target");
   if (targetE) {
-    heroTarget.textContent =
-      `of ${fmt(targetE)} ${d.unit} target · ${fmt(targetE - net)} left`;
+    heroTarget.innerHTML =
+      `of ${fmt(targetE)} ${d.unit} target · ${fmt(targetE - net)} left` +
+      // Say which set judged this day. On a past day it may not be today's.
+      (d.targets_effective_on
+        ? `<span class="sub-note" title="This day was judged against the target set in force on ${d.targets_effective_on}">set from ${d.targets_effective_on}</span>`
+        : "");
     heroTarget.classList.toggle("over", net > targetE);
   } else {
-    heroTarget.textContent = "no energy target set";
+    heroTarget.textContent = d.targets_effective_on
+      ? "no target set was in force on this day"
+      : "no energy target set";
     heroTarget.classList.remove("over");
   }
 
@@ -674,12 +680,6 @@ async function submitPerson(ev) {
     sex_offset_kcal: Number($("#p-sex-offset").value) || 0,
     height_cm: Number($("#p-height").value),
     activity_multiplier: Number($("#p-activity").value) || 1.2,
-    target_energy_kj: numOrNull("#t-energy") !== null ? toKj(numOrNull("#t-energy")) : null,
-    target_protein_g: numOrNull("#t-protein"),
-    target_carbs_g: numOrNull("#t-carbs"),
-    target_fat_g: numOrNull("#t-fat"),
-    target_sugar_g: numOrNull("#t-sugar"),
-    target_fiber_g: numOrNull("#t-fiber"),
   };
   try {
     let saved;
@@ -1044,6 +1044,21 @@ function renderForecast() {
       `<span class="lg"><i class="sw burnline"></i>daily burn</span>`);
   }
 
+  // "Eat exactly your target every day": one deterministic line, no intake
+  // variance at all. Answers the question the simulated band deliberately does
+  // not, because the band is about what is likely, this is about what is planned.
+  const sc = state.forecast?.target_scenario;
+  if (sc && sc.points) {
+    series.push({
+      key: "tscenario", line: true, cls: "tscenario",
+      points: sc.points.map((y, i) => ({ x: i + 1, y })),
+    });
+    const perWeek = sc.daily_change_kg * 7;
+    legend.unshift(
+      `<span class="lg"><i class="sw tscenario"></i>eating exactly your target ` +
+      `(${perWeek >= 0 ? "+" : ""}${fmt(perWeek, 2)} kg/week)</span>`);
+  }
+
   // actual weights, if they fall inside the window
   const todayDay = Math.floor(Date.parse(todayISO() + "T00:00:00Z") / 86400000);
   const first = state.weights.length ? state.weights[0].measured_on : null;
@@ -1063,10 +1078,10 @@ function renderForecast() {
     }
   }
 
-  const target = m.person.target_energy_kj;
+  const target = m.targets?.energy;
   const refs = [];
   if (state.series === "intake" && target) {
-    refs.push({ value: target, label: "energy target" });
+    refs.push({ value: toKj(target), label: "energy target" });
   }
 
   drawChart($("#forecast-chart"), {
@@ -1159,36 +1174,71 @@ async function loadScorecard() {
 /* ============================================================ targets */
 
 async function loadTargets() {
-  const p = state.persons.find((x) => x.id === state.personId);
-  if (!p) return;
+  if (!state.personId) return;
+  const rows = await api(`/api/persons/${state.personId}/targets`);
+  state.targetSets = rows;
+  renderTargetTable(rows);
+  const today = todayISO();
+  const current = rows.filter((r) => r.effective_on <= today).pop();
+  // Prefill from the set in force today, or the newest if it starts later.
+  const prefill = current || rows[rows.length - 1];
   for (const n of ["energy", ...FOOD_FIELDS]) {
-    const key = state.config.target_columns[n];
-    const v = p[key];
-    $("#t-" + n).value = v === null || v === undefined ? "" : fmtRaw(v, 1);
+    $("#t-" + n).value = prefill?.[n] === null || prefill?.[n] === undefined
+      ? "" : fmtRaw(prefill[n], 1);
   }
+  $("#t-effective").value = today;
+}
+
+function renderTargetTable(rows) {
+  const tbody = $("#target-table tbody");
+  $("#target-count").textContent = `${rows.length} set${rows.length === 1 ? "" : "s"}`;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No targets set.</td></tr>`;
+    return;
+  }
+  const today = todayISO();
+  const current = rows.filter((r) => r.effective_on <= today).pop();
+  const unit = state.config.units;
+  tbody.innerHTML = rows.slice().reverse().map((r) => {
+    const isCurrent = current && current.id === r.id;
+    const isFuture = r.effective_on > today;
+    const cell = (n) => r[n] === null || r[n] === undefined
+      ? `<span class="unknown">off</span>`
+      : `${fmt(r[n], n === "sodium" ? 0 : 1)}${n === "energy" ? " " + unit.energy : ""}`;
+    return `<tr>
+      <td>${r.effective_on}</td>
+      <td class="num">${cell("energy")}</td>
+      <td class="num">${cell("protein")}</td>
+      <td class="num">${cell("carbs")}</td>
+      <td class="num">${cell("fat")}</td>
+      <td class="num">${cell("sodium")}</td>
+      <td><span class="pill ${isCurrent ? "on" : ""}">${
+        isCurrent ? "in force" : isFuture ? "scheduled" : "superseded"}</span></td>
+      <td><div class="row-actions">
+        <button data-edit-target="${r.effective_on}">Edit</button>
+        <button data-del-target="${r.id}">Delete</button></div></td>
+    </tr>`;
+  }).join("");
 }
 
 async function saveTargets() {
   if (!state.personId) return toast("Pick a person first", true);
-  const p = state.persons.find((x) => x.id === state.personId);
-  if (!p) return toast("Person not loaded yet", true);
-  const body = {
-    name: p.name, dob: p.dob, sex: p.sex, sex_offset_kcal: p.sex_offset_kcal,
-    height_cm: p.height_cm, activity_multiplier: p.activity_multiplier,
-  };
-  // Built from the published column map so sodium lands in target_sodium_mg
-  // without the client hardcoding the suffix convention.
+  const effective = $("#t-effective").value || todayISO();
+  const body = { effective_on: effective };
   for (const n of ["energy", ...FOOD_FIELDS]) {
-    body[state.config.target_columns[n]] = numOrNull("#t-" + n);
+    body[n] = numOrNull("#t-" + n);
   }
-  body.target_energy_kj =
-    body.target_energy_kj !== null ? toKj(body.target_energy_kj) : null;
+  // Energy is stored in kJ; the field follows the display unit.
+  if (body.energy !== null) body.energy = toKj(body.energy);
   try {
-    await api(`/api/persons/${state.personId}`, { method: "PUT", body: JSON.stringify(body) });
-    await reloadPersons();
-    $("#targets-msg").textContent = "Saved.";
+    await api(`/api/persons/${state.personId}/targets`, {
+      method: "PUT", body: JSON.stringify(body),
+    });
+    $("#targets-msg").textContent = `Saved, effective ${effective}.`;
     $("#targets-msg").className = "hint";
-    await Promise.all([refreshDay(), loadMetrics()]);
+    state.targetsDirty = false;
+    await Promise.all([reloadPersons(), loadTargets(), refreshDay(), loadMetrics()]);
+    if ($("#view-predict").classList.contains("active")) loadForecast();
   } catch (err) {
     $("#targets-msg").textContent = err.message;
     $("#targets-msg").className = "hint error";
@@ -1428,6 +1478,34 @@ function bindEvents() {
   });
 
   $("#save-targets").addEventListener("click", () => saveTargets());
+  $("#target-table").addEventListener("click", async (e) => {
+    const del = e.target.closest("button[data-del-target]");
+    const edit = e.target.closest("button[data-edit-target]");
+    if (del) {
+      await api(`/api/targets/${del.dataset.delTarget}`, { method: "DELETE" });
+      toast("Target set removed");
+    } else if (edit) {
+      const row = state.targetSets.find(
+        (r) => r.effective_on === edit.dataset.editTarget);
+      if (!row) return;
+      $("#t-effective").value = row.effective_on;
+      for (const n of ["energy", ...FOOD_FIELDS]) {
+        $("#t-" + n).value =
+          row[n] === null || row[n] === undefined ? "" : fmtRaw(row[n], 1);
+      }
+      $("#targets-msg").textContent =
+        `Editing the set effective ${row.effective_on}. Save to replace it.`;
+      $("#targets-msg").className = "hint";
+      return;
+    } else {
+      return;
+    }
+    await Promise.all([loadTargets(), refreshDay(), loadMetrics()]);
+    if ($("#view-predict").classList.contains("active")) loadForecast();
+  });
+  $("#t-effective").addEventListener("change", () => {
+    $("#targets-msg").textContent = "";
+  });
   $("#save-model").addEventListener("click", () => saveModelSettings());
   $$("a[data-goto]").forEach((a) => a.addEventListener("click", (e) => {
     e.preventDefault();

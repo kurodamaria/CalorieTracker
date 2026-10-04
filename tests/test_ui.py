@@ -27,6 +27,23 @@ BASE = f"http://127.0.0.1:{PORT}"
 KJ_PER_G = 50.0
 
 
+def check(label, got, want, tol=0.01):
+    if isinstance(want, (str, list, dict)) or isinstance(got, (str, list, dict)) \
+            or want is None or got is None:
+        ok = got == want
+    else:
+        ok = abs(got - want) <= tol
+    print(f"{'PASS' if ok else 'FAIL'}  {label}: got={got!r} want={want!r}")
+    if not ok:
+        errors.append(f"ASSERT {label}")
+
+
+def check_true(label, cond, detail=""):
+    print(f"{'PASS' if cond else 'FAIL'}  {label} {detail}")
+    if not cond:
+        errors.append(f"ASSERT {label}")
+
+
 def pick(page, query, expect):
     page.fill("#food-search", query)
     page.wait_for_selector("#search-results.open li[data-name]")
@@ -460,17 +477,126 @@ def run():
 
         # -------------------------------------------- 10. model settings
         page.click('[data-view="targets"]')
+        page.wait_for_selector("#target-table tbody tr")
+        rows = page.eval_on_selector_all(
+            "#target-table tbody button[data-del-target]", "e => e.length")
+        check_true("a seeded target set is listed", rows >= 1, f"{rows} rows")
+        state_txt = page.inner_text("#target-table tbody")
+        check_true("the in-force set is labelled", "in force" in state_txt, state_txt[:90])
+        check_true("sodium target field exists", page.input_value("#t-sodium") != "",
+                   page.input_value("#t-sodium"))
         page.fill("#t-energy", "8500")
         page.fill("#t-protein", "150")
         page.click("#save-targets")
-        page.wait_for_timeout(600)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#target-table tbody tr').length >= 1",
+            timeout=15000)
         page.click('[data-view="log"]')
         page.wait_for_timeout(600)
         tt = page.inner_text("#energy-target")
         assert "8,500" in tt, tt
+        check_true("day view says which set judged it", "set from" in tt, tt)
+
+        # -------- a backdated target set must not move the past ------------
+        print("\n--- dated targets in the browser ---")
         page.click('[data-view="targets"]')
-        assert page.input_value("#t-energy") == "8500", "target did not persist"
-        assert page.input_value("#t-protein") == "150"
+        page.wait_for_timeout(400)
+
+        def day_json(iso):
+            """Ask the API what the app's own day view will see."""
+            return page.evaluate(
+                """async (d) => {
+                     const p = document.querySelector('#person-select').value;
+                     const r = await fetch(`/api/day/${d}?person_id=${p}`);
+                     return await r.json();
+                   }""", iso)
+
+        def shift(days):
+            return page.evaluate(
+                "(n) => { const t = new Date(Date.now() - n*864e5);"
+                " return t.toISOString().slice(0,10); }", days)
+
+        baseline_day = shift(20)
+        past_day, change_day = shift(9), shift(8)
+
+        # The person was created with a seeded set dated today. It is the most
+        # recent, so it would win for today and mask anything backdated. Clear it
+        # first - through the UI, since that path needs covering anyway.
+        page.click("#target-table tbody tr:first-child button[data-del-target]")
+        page.wait_for_timeout(900)
+        left = page.eval_on_selector_all(
+            "#target-table tbody button[data-del-target]", "e => e.length")
+        check_true("seeded set removed, no sets left", left == 0, f"{left} rows")
+
+        # Nothing governs the past now: with no target at all, a day reports none
+        # rather than borrowing today's goal.
+        check_true("a past day has no target before any is backdated",
+                   day_json(past_day)["targets"]["energy"] is None)
+        page.fill("#t-effective", baseline_day)
+        page.fill("#t-energy", "9000")
+        page.fill("#t-protein", "160")
+        page.click("#save-targets")
+        page.wait_for_timeout(1000)
+
+        before = day_json(past_day)
+        check("baseline backdated set now governs the past",
+              before["targets"]["energy"], 9000.0)
+        check("dated to the baseline", before["targets_effective_on"], baseline_day)
+
+        # Now change the goal, eight days ago. Nine days ago must not move.
+        page.fill("#t-effective", change_day)
+        page.fill("#t-energy", "11000")
+        page.fill("#t-protein", "180")
+        page.click("#save-targets")
+        page.wait_for_timeout(1000)
+
+        after = day_json(past_day)
+        check("a day before the change kept its old target",
+              after["targets"]["energy"], 9000.0)
+        check("...and its effective date is untouched",
+              after["targets_effective_on"], baseline_day)
+        today_target = day_json(date.today().isoformat())
+        check("today picked up the new set", today_target["targets"]["energy"], 11000.0)
+        check("dated to the change", today_target["targets_effective_on"], change_day)
+        check("today reports the current set for planning",
+              today_target["targets_current"]["energy"], 11000.0)
+        check("while the past day still sees the old one in force",
+              after["targets_current"]["energy"], 11000.0)
+
+        states = page.eval_on_selector_all(
+            "#target-table tbody tr td:nth-child(7)",
+            "els => els.map(e => e.textContent.trim())")
+        check_true("the table distinguishes in-force from superseded",
+                   "in force" in states and "superseded" in states, str(states))
+        print(f"PASS  history untouched, today updated; states {states}")
+
+        # -------- delete it and confirm the fallback ----------------------
+        rows_before = page.eval_on_selector_all(
+            "#target-table tbody button[data-del-target]", "e => e.length")
+        page.click("#target-table tbody tr:first-child button[data-del-target]")
+        page.wait_for_timeout(900)
+        rows_after = page.eval_on_selector_all(
+            "#target-table tbody button[data-del-target]", "e => e.length")
+        check_true("deleting a set removes its row", rows_after == rows_before - 1,
+                   f"{rows_before} -> {rows_after}")
+
+        # -------- the target scenario on the forecast ---------------------
+        page.click('[data-view="predict"]')
+        page.wait_for_function(
+            "() => document.querySelector('.fc-badges') !== null", timeout=90000)
+        scen = page.eval_on_selector_all(
+            "#forecast-chart svg path.line.tscenario", "e => e.length")
+        check_true("the eat-exactly-your-target line is drawn", scen == 1, f"{scen}")
+        legend = page.inner_text("#forecast-legend")
+        check_true("and is explained in the legend",
+                   "eating exactly your target" in legend, legend[:110])
+        check_true("with a kg/week figure",
+                   "kg/week" in legend, legend[:110])
+        print("PASS  target scenario line drawn and labelled")
+
+        page.click('[data-view="log"]')
+        page.click('[data-view="targets"]')
+        page.wait_for_timeout(400)
         assert page.input_value("#s-kj-per-kg") == "32213"
         assert page.input_value("#s-cal-days") == "30"
         lags = [page.input_value(f"#s-lag{i}") for i in range(4)]

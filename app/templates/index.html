@@ -306,11 +306,39 @@
   <!-- -------------------------------------------------------- TARGETS -->
   <section id="view-targets" class="view">
     <div class="panel">
-      <h2>Daily targets for <span id="targets-who"></span></h2>
-      <p class="hint">Leave a field empty to switch that metric off. Energy is entered in kJ.</p>
+      <h2>Target set for <span id="targets-who"></span></h2>
+      <p class="hint">
+        A target set governs every day from its start date onward, until a later
+        set replaces it. Past days keep the goal that was actually in force then,
+        so changing a target never rewrites your history.
+      </p>
+      <label class="inline-label">
+        Effective from
+        <input type="date" id="t-effective" />
+      </label>
       <div class="grid3" id="target-grid"></div>
-      <div class="form-actions"><button id="save-targets" class="primary">Save targets</button></div>
-      <p class="hint" id="targets-msg"></p>
+      <div class="form-actions">
+        <button id="save-targets" class="primary">Save target set</button>
+        <span class="hint" id="targets-msg"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Target history <span class="count" id="target-count"></span></h2>
+      <div class="table-wrap">
+        <table id="target-table">
+          <thead><tr>
+            <th>Effective from</th><th class="num">Energy</th><th class="num">Protein</th>
+            <th class="num">Carbs</th><th class="num">Fat</th><th class="num">Sodium</th>
+            <th>State</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="hint">
+        Deleting a set makes those days fall back to the one before it. A field
+        left blank is switched off, not zero.
+      </p>
     </div>
 
     <div class="panel">

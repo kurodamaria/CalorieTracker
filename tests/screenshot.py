@@ -57,10 +57,18 @@ def seed():
         pid = repo.create_person(conn, {
             "name": "Test Person", "dob": "1990-03-15", "sex": "male",
             "sex_offset_kcal": 5.0, "height_cm": 175.0, "activity_multiplier": 1.25,
+        })
+        # Two dated target sets, so the screenshot shows a real history rather
+        # than a single row: a cutting phase that has since been relaxed.
+        repo.save_targets(conn, pid, (TODAY - timedelta(days=45)).isoformat(), {
+            "target_energy_kj": 8000, "target_protein_g": 170,
+            "target_carbs_g": 180, "target_fat_g": 60,
+            "target_sugar_g": 40, "target_fiber_g": 30, "target_sodium_mg": 1800,
+        })
+        repo.save_targets(conn, pid, (TODAY - timedelta(days=10)).isoformat(), {
             "target_energy_kj": 9500, "target_protein_g": 150,
             "target_carbs_g": 220, "target_fat_g": 70,
-            "target_sugar_g": 50, "target_fiber_g": 30,
-            "target_sodium_mg": 2000,
+            "target_sugar_g": 50, "target_fiber_g": 30, "target_sodium_mg": 2000,
         })
         repo.create_person(conn, {
             "name": "Guest", "dob": "1995-05-05", "sex": "female",

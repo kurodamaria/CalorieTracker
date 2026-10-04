@@ -6,11 +6,23 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from datetime import date, timedelta
 
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "calorie_tracker.db")
 
 fails = []
+
+
+def check(label, got, want, tol=0.01):
+    if isinstance(want, (str, list, dict)) or isinstance(got, (str, list, dict)) \
+            or want is None or got is None:
+        ok = got == want
+    else:
+        ok = abs(got - want) <= tol
+    print(f"{'PASS' if ok else 'FAIL'}  {label}: got={got!r} want={want!r}")
+    if not ok:
+        fails.append(label)
 
 
 def check_true(label, cond, detail=""):
@@ -130,9 +142,18 @@ check_true("fresh entries has person_id NOT NULL",
            .count("person_id") == 1)
 check_true("fresh foods has sodium_mg",
            "sodium_mg" in [r["name"] for r in c2.execute("PRAGMA table_info(foods)")])
-check_true("fresh persons has target_sodium_mg",
-           "target_sodium_mg" in [r["name"] for r in
-                                  c2.execute("PRAGMA table_info(persons)")])
+check_true("fresh db has person_targets",
+           c2.execute("SELECT 1 FROM sqlite_master WHERE name='person_targets'"
+                      ).fetchone())
+pcols = [r["name"] for r in c2.execute("PRAGMA table_info(persons)")]
+check_true("persons holds identity only", not any(c.startswith("target_") for c in pcols),
+           str([c for c in pcols if c.startswith("target_")]))
+tcols = {r["name"] for r in c2.execute("PRAGMA table_info(person_targets)")}
+check_true("person_targets holds every target column",
+           all(c in tcols for c in ("target_energy_kj", "target_protein_g",
+                                    "target_carbs_g", "target_fat_g",
+                                    "target_sugar_g", "target_fiber_g",
+                                    "target_sodium_mg")), str(sorted(tcols)))
 n_settings = c2.execute("SELECT COUNT(*) n FROM settings").fetchone()["n"]
 check_true("fresh defaults seeded incl. target_sodium", n_settings == 12, f"{n_settings}")
 check_true("sodium default is 2000 mg",
@@ -151,7 +172,7 @@ oc.executescript("""
         sex TEXT NOT NULL DEFAULT 'other', sex_offset_kcal REAL NOT NULL DEFAULT 0.0,
         height_cm REAL NOT NULL, activity_multiplier REAL NOT NULL DEFAULT 1.2,
         target_energy_kj REAL, target_protein_g REAL, target_carbs_g REAL,
-        target_fat_g REAL, target_sugar_g REAL, target_fiber_g REAL,
+        target_fat_g REAL, target_sugar_g REAL, target_fiber_g REAL, target_sodium_mg REAL,
         created_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE foods (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, brand TEXT,
@@ -169,25 +190,89 @@ oc.commit()
 oc.close()
 
 notes = json.loads(run_migrate(old))
-check_true("reported the two new columns",
-           "foods: adding sodium_mg" in notes and
-           "persons: adding target_sodium_mg" in notes, str(notes))
+check_true("reported dating the targets",
+           any("targets: dated" in n for n in notes), str(notes))
+check_true("reported moving them off the person row",
+           any("targets moved to person_targets" in n for n in notes), str(notes))
 oc = sqlite3.connect(old)
 oc.row_factory = sqlite3.Row
 check_true("foods gained sodium_mg",
            "sodium_mg" in [r["name"] for r in oc.execute("PRAGMA table_info(foods)")])
-check_true("persons gained target_sodium_mg",
-           "target_sodium_mg" in [r["name"] for r in
-                                  oc.execute("PRAGMA table_info(persons)")])
+check_true("person_targets exists",
+           oc.execute("SELECT 1 FROM sqlite_master WHERE name='person_targets'"
+                      ).fetchone())
 f = oc.execute("SELECT * FROM foods").fetchone()
 check_true("existing food kept its values",
            (f["name"], f["energy_kj"], f["protein_g"]) == ("Old food", 500, 10))
 check_true("and sodium starts empty, not zero", f["sodium_mg"] is None)
 p = oc.execute("SELECT * FROM persons").fetchone()
-check_true("existing person kept its target", p["target_energy_kj"] == 9000)
-check_true("and sodium target starts empty", p["target_sodium_mg"] is None)
+check_true("existing person row kept its identity",
+           (p["name"], p["height_cm"]) == ("Existing", 180))
+check_true("targets dropped from the person row",
+           not any(r["name"].startswith("target_")
+                   for r in oc.execute("PRAGMA table_info(persons)")))
+pt = oc.execute("SELECT * FROM person_targets").fetchone()
+check_true("and preserved in the new table",
+           pt is not None and pt["person_id"] == p["id"] and pt["target_energy_kj"] == 9000,
+           str(dict(pt)) if pt else "none")
+check_true("undated because that person has no records",
+           pt["effective_on"] == date.today().isoformat(), pt["effective_on"])
 oc.close()
 check_true("second run over it is a no-op", json.loads(run_migrate(old)) == [])
+
+# A person WITH history gets their existing targets dated from their first day,
+# so history keeps rendering exactly as it did before the migration.
+print("\n--- targets dated from the first day of data ---")
+old2 = os.path.join(tmp, "with_history.db")
+oc = sqlite3.connect(old2)
+oc.executescript("""
+    CREATE TABLE persons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, dob TEXT NOT NULL,
+        sex TEXT NOT NULL DEFAULT 'other', sex_offset_kcal REAL NOT NULL DEFAULT 0.0,
+        height_cm REAL NOT NULL, activity_multiplier REAL NOT NULL DEFAULT 1.2,
+        target_energy_kj REAL, target_protein_g REAL, target_carbs_g REAL,
+        target_fat_g REAL, target_sugar_g REAL, target_fiber_g REAL, target_sodium_mg REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE foods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, brand TEXT,
+        kind TEXT NOT NULL DEFAULT 'food', base_amount REAL NOT NULL DEFAULT 100,
+        base_unit TEXT NOT NULL DEFAULT 'kj', energy_kj REAL NOT NULL,
+        protein_g REAL, carbs_g REAL, fat_g REAL, sugar_g REAL, fiber_g REAL,
+        grams_per_ml REAL NOT NULL DEFAULT 1.0, grams_per_piece REAL, notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+    CREATE TABLE entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_id INTEGER NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+        food_id INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,
+        logged_on TEXT NOT NULL, meal TEXT NOT NULL DEFAULT 'snack',
+        amount REAL NOT NULL, unit TEXT NOT NULL DEFAULT 'g', note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')));
+""")
+first_day = (date.today() - timedelta(days=45)).isoformat()
+oc.execute("INSERT INTO persons (name, dob, height_cm, target_energy_kj,"
+           " target_protein_g) VALUES ('Older', '1990-01-01', 180, 7500, 130)")
+oc.execute("INSERT INTO foods (name, energy_kj) VALUES ('Old food', 500)")
+oc.execute("INSERT INTO entries (person_id, food_id, logged_on, amount)"
+           " VALUES (1, 1, ?, 100)", (first_day,))
+oc.execute("INSERT INTO entries (person_id, food_id, logged_on, amount)"
+           " VALUES (1, 1, ?, 100)", ((date.today() - timedelta(days=5)).isoformat(),))
+oc.commit()
+oc.close()
+
+run_migrate(old2)
+oc = sqlite3.connect(old2)
+oc.row_factory = sqlite3.Row
+pt = oc.execute("SELECT * FROM person_targets ORDER BY effective_on").fetchall()
+check_true("one set migrated", len(pt) == 1, str(len(pt)))
+check("anchored to their earliest record, not today",
+      pt[0]["effective_on"], first_day)
+check("energy preserved", pt[0]["target_energy_kj"], 7500.0)
+check("protein preserved", pt[0]["target_protein_g"], 130.0)
+check_true("carbs was null and stays null", pt[0]["target_carbs_g"] is None)
+n_entries = oc.execute("SELECT COUNT(*) n FROM entries").fetchone()["n"]
+check_true("entries untouched", n_entries == 2, str(n_entries))
+oc.close()
+check_true("second run over it is a no-op", json.loads(run_migrate(old2)) == [])
 
 print()
 if fails:

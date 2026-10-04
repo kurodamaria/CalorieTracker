@@ -226,6 +226,42 @@ This is a deliberate design constraint, not a feature list.
 
 ---
 
+## Targets are a protocol, not part of who you are
+
+A person is a human: identity, body, weight history. What you are *aiming for* is
+a separate thing that changes — you hit a plateau, you switch from cutting to
+maintaining, a training block ends. The app stores those apart.
+
+Each target set carries an **effective-from date** and governs every day from
+then until a later set replaces it:
+
+- **History** is judged against the goal that was actually in force that day. Cut
+  at 8000 kJ in March, relax to 9500 kJ in September, and March is still scored
+  against 8000. Changing a target never rewrites your past.
+- **Today and the projection** use the current set, because those are planning
+  questions.
+- **Days before your first target set have no target**, and say so, rather than
+  borrowing today's goal to judge them.
+
+The Targets panel shows the whole timeline, marks each set *in force*,
+*superseded* or *scheduled*, and lets you delete one — days it covered fall back
+to the set before it. The day view states which set judged it.
+
+Why not "just create a new person" when you change your goal? Because it costs
+you the two things the app is actually for. Your **weight history feeds the burn
+fit**, so a fresh person is uncalibrated for another two weeks of weigh-ins. And
+your **intake history fragments**, so "average intake over 90 days" becomes wrong
+and the block bootstrap loses the weekly rhythm it samples from.
+
+### "Eat exactly your target"
+
+The projection's band answers *what is likely*. A second line answers *what is
+planned*: constant intake at your current energy target against the same fitted
+burn, with no intake variance at all, labelled with the resulting kg/week. If the
+two diverge, your intake has been drifting from your goal.
+
+---
+
 ## Design decisions
 
 - **Energy is stored in kJ**, because most packaging prints kJ. Each blueprint
@@ -242,7 +278,7 @@ This is a deliberate design constraint, not a feature list.
 - **Logging units are g, ml and piece.** `piece` only appears once a
   grams-per-piece weight is set — logging "2 pieces" of something with no weight
   defined is rejected, not guessed.
-- **Targets are per person.** Blank a field to switch that metric off.
+- **Targets are per person and dated.** Blank a field to switch that metric off; see above on why changing a target does not rewrite history.
 - **Your database stays yours.** `calorie_tracker.db` is gitignored and is never
   uploaded anywhere by this project.
 
@@ -275,12 +311,13 @@ known answers instead of being inferred from the UI.
 
 ## Tests
 
-**302 checks, no test framework**, every one against a throwaway database.
+**412 checks, no test framework**, every one against a throwaway database.
 
 ```powershell
 python tests/test_body.py        # model maths
 python tests/test_core.py        # blueprints, units, coverage
 python tests/test_people.py      # people, forecasts, scoring
+python tests/test_targets.py     # dated target sets
 python tests/test_migration.py   # schema migration
 
 # browser tests:
@@ -303,7 +340,9 @@ Interactive docs at `/docs` once the server is running.
 | `GET` | `/api/foods?kind=food\|activity` | list, per-100 g in the display unit |
 | `POST` `PUT` `DELETE` | `/api/foods[/{id}]` | blueprints |
 | `POST` | `/api/foods/{id}/derive-energy` | estimate energy from macros |
-| `GET` `POST` `PUT` `DELETE` | `/api/persons[/{id}]` | people; targets live here |
+| `GET` `POST` `PUT` `DELETE` | `/api/persons[/{id}]` | identity and body only |
+| `GET` `PUT` | `/api/persons/{id}/targets` | dated target sets |
+| `DELETE` | `/api/targets/{id}` | remove one set |
 | `GET` | `/api/persons/{id}/metrics` | weight, BMI, BMR, both burn estimates |
 | `GET` `POST` | `/api/persons/{id}/weights` | weight log, one per day |
 | `POST` `DELETE` | `/api/entries[/{id}]` | records |

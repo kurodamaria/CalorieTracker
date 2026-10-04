@@ -51,8 +51,11 @@ with TestClient(app) as c:
     pid = me["id"]
     check("sex offset auto-filled from sex", me["sex_offset_kcal"], 5.0)
     check("activity default", me["activity_multiplier"], 1.2)
-    check_true("targets seeded from global settings", me["target_energy_kj"] == 8500,
-               str(me["target_energy_kj"]))
+    check_true("the person row holds identity only, no targets",
+               not any(k.startswith("target_") for k in me), str(sorted(me)))
+    seeded = c.get(f"/api/persons/{pid}/targets").json()
+    check_true("targets live in their own dated table", len(seeded) == 1, str(seeded))
+    check("seeded from global settings", seeded[0]["energy"], 8500.0)
 
     r = c.post("/api/persons", json={"name": "Bad", "dob": "2030-01-01",
                                      "height_cm": 175})
@@ -392,19 +395,16 @@ with TestClient(app) as c:
 
     # ---------------------------------------------------------- targets
     print("\n--- per-person targets ---")
-    c.put(f"/api/persons/{pid}", json={
-        "name": "Cal", "dob": "1990-06-01", "sex": "male", "sex_offset_kcal": 5.0,
-        "height_cm": 175, "target_energy_kj": 9000, "target_protein_g": 160,
-        "target_carbs_g": None, "target_fat_g": 70})
+    # Dated from d0 so this day's summary resolves them; see test_targets.py for
+    # the timeline semantics.
+    c.put(f"/api/persons/{pid}/targets", json={
+        "effective_on": d0, "energy": 9000, "protein": 160,
+        "carbs": None, "fat": 70})
     d = c.get(f"/api/day/{d0}?person_id={pid}").json()
     check("target applied to that person", d["targets"]["energy"], 9000.0)
     check("blank target is off", d["targets"]["carbs"], None)
-    g = c.get(f"/api/day/{d0}?person_id={p_one}").json()
-    # PUT is a full replace, so p_one's earlier partial update cleared its targets.
-    # Give it its own distinct set and confirm the two never share.
-    c.put(f"/api/persons/{p_one}", json={
-        "name": "Test Person", "dob": "1990-03-15", "sex": "male", "height_cm": 175,
-        "target_energy_kj": 7200, "target_protein_g": 130})
+    c.put(f"/api/persons/{p_one}/targets", json={
+        "effective_on": d0, "energy": 7200, "protein": 130})
     g = c.get(f"/api/day/{d0}?person_id={p_one}").json()
     check("each person keeps their own energy target", g["targets"]["energy"], 7200.0)
     d2 = c.get(f"/api/day/{d0}?person_id={pid}").json()

@@ -106,13 +106,6 @@ class PersonIn(BaseModel):
     sex_offset_kcal: float = 0.0
     height_cm: float = Field(gt=0, le=300)
     activity_multiplier: float = Field(default=1.2, gt=0, le=10)
-    target_energy_kj: float | None = Field(default=None, ge=0)
-    target_protein_g: float | None = Field(default=None, ge=0)
-    target_carbs_g: float | None = Field(default=None, ge=0)
-    target_fat_g: float | None = Field(default=None, ge=0)
-    target_sugar_g: float | None = Field(default=None, ge=0)
-    target_fiber_g: float | None = Field(default=None, ge=0)
-    target_sodium_mg: float | None = Field(default=None, ge=0)
 
     @field_validator("sex")
     @classmethod
@@ -130,6 +123,27 @@ class PersonIn(BaseModel):
             raise ValueError("date of birth must be in the past")
         if d.year < 1900:
             raise ValueError("date of birth looks wrong")
+        return v
+
+
+class TargetsIn(BaseModel):
+    """A target set, effective from `effective_on` (inclusive) onward."""
+
+    effective_on: str | None = None
+    energy: float | None = Field(default=None, ge=0)
+    protein: float | None = Field(default=None, ge=0)
+    carbs: float | None = Field(default=None, ge=0)
+    fat: float | None = Field(default=None, ge=0)
+    sugar: float | None = Field(default=None, ge=0)
+    fiber: float | None = Field(default=None, ge=0)
+    sodium: float | None = Field(default=None, ge=0)
+
+    @field_validator("effective_on")
+    @classmethod
+    def _effective(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        date.fromisoformat(v)
         return v
 
 
@@ -343,18 +357,18 @@ def api_list_persons():
 @app.post("/api/persons", status_code=201)
 def api_create_person(body: PersonIn):
     with db() as conn:
+        person_id = repo.create_person(conn, _person_payload(body))
+        # Seed a first target set from the global defaults, dated from today so
+        # it does not pretend to have governed any days before it existed.
         settings = get_settings(conn)
-        data = _person_payload(body)
-        # Seed targets from the global defaults so a new person starts sane.
+        values = {}
         for n in N.NUTRIENTS:
-            key = f"target_{n}"
-            field = N.target_column(n)
-            if data.get(field) is None and settings.get(key):
-                try:
-                    data[field] = float(settings[key])
-                except ValueError:
-                    pass
-        person_id = repo.create_person(conn, data)
+            raw = settings.get(f"target_{n}")
+            try:
+                values[N.target_column(n)] = float(raw) if raw else None
+            except ValueError:
+                values[N.target_column(n)] = None
+        repo.save_targets(conn, person_id, _today(), values)
         return repo.get_person(conn, person_id)
 
 
@@ -372,6 +386,54 @@ def api_delete_person(person_id: int):
         _require_person(conn, person_id)
         repo.delete_person(conn, person_id)
     return {"deleted": person_id}
+
+
+@app.get("/api/persons/{person_id}/targets")
+def api_list_targets(person_id: int):
+    with db() as conn:
+        _require_person(conn, person_id)
+        unit = get_settings(conn)["energy_display"]
+        rows = repo.target_sets(conn, person_id)
+        return [_target_row(r, unit) for r in rows]
+
+
+@app.put("/api/persons/{person_id}/targets")
+def api_save_targets(person_id: int, body: TargetsIn):
+    with db() as conn:
+        _require_person(conn, person_id)
+        effective = body.effective_on or _today()
+        if effective > _today():
+            raise HTTPException(400, "a target cannot start in the future")
+        values = {N.target_column(n): getattr(body, n) for n in N.NUTRIENTS}
+        row = repo.save_targets(conn, person_id, effective, values)
+        return _target_row(row, get_settings(conn)["energy_display"])
+
+
+@app.delete("/api/targets/{target_id}")
+def api_delete_targets(target_id: int):
+    with db() as conn:
+        repo.delete_targets(conn, target_id)
+    return {"deleted": target_id}
+
+
+def _target_row(row: dict | None, display_unit: str) -> dict:
+    if not row:
+        return {}
+    energy = row["target_energy_kj"]
+    if energy is not None and display_unit == "kcal":
+        energy = energy / N.KJ_PER_KCAL
+    return {
+        "id": row["id"],
+        "person_id": row["person_id"],
+        "effective_on": row["effective_on"],
+        "energy": energy,
+        "protein": row["target_protein_g"],
+        "carbs": row["target_carbs_g"],
+        "fat": row["target_fat_g"],
+        "sugar": row["target_sugar_g"],
+        "fiber": row["target_fiber_g"],
+        "sodium": row["target_sodium_mg"],
+    }
 
 
 @app.get("/api/persons/{person_id}/metrics")
