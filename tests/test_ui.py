@@ -17,6 +17,11 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 from app.main import app  # noqa: E402
 
 KJ = 4.184
+def today_iso():
+    from datetime import date as _d
+    return _d.today().isoformat()
+
+
 errors = []
 PORT = 8779
 server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error"))
@@ -610,7 +615,74 @@ def run():
         assert page.input_value("#s-lag0") == "0.25", "kernel not normalised on save"
         print("PASS  per-person targets and global model settings persist")
 
-        # ---------------------------------------------- 11. persistence
+        # ---------------------------------------------- 11. target units
+        print("\n--- the target field must mean what its label says ---")
+        page.click('[data-view="targets"]')
+        page.wait_for_timeout(500)
+
+        def target_label():
+            # first label is Energy; eval_on_selector hands over the element
+            return page.eval_on_selector(
+                "#target-grid label", "el => el.textContent.trim()")
+
+        def hero_target_text():
+            page.click('[data-view="log"]')
+            page.wait_for_timeout(400)
+            t = page.inner_text("#energy-target")
+            page.click('[data-view="targets"]')
+            page.wait_for_timeout(400)
+            return t
+
+        check_true("in kJ mode the field says kJ",
+                   "kJ" in target_label(), target_label())
+
+        # Set a distinctive value in kJ, then confirm the log agrees.
+        page.fill("#t-effective", today_iso())
+        page.fill("#t-energy", "7500")
+        page.click("#save-targets")
+        page.wait_for_timeout(900)
+        check_true("kJ target shows as 7,500 kJ in the day view",
+                   "7,500 kJ" in hero_target_text(), hero_target_text())
+
+        # Flip to kcal: the label, the field and the day view must all move.
+        page.click('.energy-toggle .unit-btn[data-unit="kcal"]')
+        page.wait_for_timeout(1400)
+        check_true("in kcal mode the field says kcal, not kJ",
+                   "kcal" in target_label() and "kJ" not in target_label(),
+                   target_label())
+        shown = page.input_value("#t-energy")
+        check("and the field converts 7500 kJ to kcal", float(shown), 1792.5, 0.1)
+        check_true("and the day view agrees, in kcal",
+                   "1,793 kcal" in hero_target_text(), hero_target_text())
+
+        # Now the round trip that was broken: retype the same number, save, and
+        # the stored value must not have drifted.
+        page.fill("#t-energy", shown)
+        page.click("#save-targets")
+        page.wait_for_timeout(900)
+        after = page.input_value("#t-energy")
+        check("re-saving the same value does not drift", float(after), 1792.5, 0.1)
+        page.reload(wait_until="networkidle")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#person-select option').length === 3")
+        page.select_option("#person-select", label="Test Person")
+        page.click('[data-view="targets"]')
+        page.wait_for_timeout(900)
+        check("and survives a reload unchanged",
+              float(page.input_value("#t-energy")), 1792.5, 0.1)
+
+        page.click('.energy-toggle .unit-btn[data-unit="kj"]')
+        page.wait_for_timeout(1400)
+        check("switching back restores the kJ reading",
+              float(page.input_value("#t-energy")), 7500.0, 0.5)
+        check_true("and the label with it", "kJ" in target_label(), target_label())
+        header = page.inner_text("#target-table thead")
+        check_true("the history table header states the unit too",
+                   "energy (kj)" in header.lower(),
+                   header.replace("\n", " ")[:80])
+        print("PASS  target field, label, table and day view agree in both units")
+
+        # ---------------------------------------------- 12. persistence
         page.reload(wait_until="networkidle")
         page.wait_for_function(
             "() => document.querySelectorAll('#person-select option').length === 3")

@@ -636,7 +636,9 @@ async function deleteFood(id) {
 
 function renderTargetFields() {
   $("#target-grid").innerHTML = ["energy", ...FOOD_FIELDS].map((n) => {
-    const unit = state.config.units[n];
+    // Targets follow the global display unit, so the label has to say which.
+    // State it as kJ and quietly read kcal and the label is simply a lie.
+    const unit = n === "energy" ? energyUnit() : state.config.units[n];
     const note = MINOR.includes(n) ? ' <span class="t-note">summarised</span>' : "";
     return `<label>${state.config.labels[n]} (${unit})${note}
       <input type="number" step="any" min="0" id="t-${n}" placeholder="off" /></label>`;
@@ -1183,8 +1185,10 @@ async function loadTargets() {
   // Prefill from the set in force today, or the newest if it starts later.
   const prefill = current || rows[rows.length - 1];
   for (const n of ["energy", ...FOOD_FIELDS]) {
-    $("#t-" + n).value = prefill?.[n] === null || prefill?.[n] === undefined
-      ? "" : fmtRaw(prefill[n], 1);
+    // The API already returns targets in the display unit, so nothing to convert
+    // here. Converting again would divide by 4.184 twice.
+    const v = prefill?.[n];
+    $("#t-" + n).value = v === null || v === undefined ? "" : fmtRaw(v, 1);
   }
   $("#t-effective").value = today;
 }
@@ -1198,13 +1202,12 @@ function renderTargetTable(rows) {
   }
   const today = todayISO();
   const current = rows.filter((r) => r.effective_on <= today).pop();
-  const unit = state.config.units;
   tbody.innerHTML = rows.slice().reverse().map((r) => {
     const isCurrent = current && current.id === r.id;
     const isFuture = r.effective_on > today;
     const cell = (n) => r[n] === null || r[n] === undefined
       ? `<span class="unknown">off</span>`
-      : `${fmt(r[n], n === "sodium" ? 0 : 1)}${n === "energy" ? " " + unit.energy : ""}`;
+      : fmt(r[n], n === "sodium" ? 0 : 1);
     return `<tr>
       <td>${r.effective_on}</td>
       <td class="num">${cell("energy")}</td>
@@ -1219,6 +1222,13 @@ function renderTargetTable(rows) {
         <button data-del-target="${r.id}">Delete</button></div></td>
     </tr>`;
   }).join("");
+  // The unit lives in the header, so it cannot drift out of step with the value.
+  $("#target-table thead").innerHTML = `<tr>
+    <th>Effective from</th>
+    <th class="num">Energy (${energyUnit()})</th>
+    <th class="num">Protein (g)</th><th class="num">Carbs (g)</th>
+    <th class="num">Fat (g)</th><th class="num">Sodium (mg)</th>
+    <th>State</th><th></th></tr>`;
 }
 
 async function saveTargets() {
@@ -1297,9 +1307,13 @@ async function setDisplayUnit(unit) {
   await api("/api/settings", { method: "PUT", body: JSON.stringify({ energy_display: unit }) });
   await reloadPersons();
   syncUnitButtons();
+  // The target fields are labelled in the display unit, so both the labels and
+  // the loaded values have to be rebuilt when it changes.
+  renderTargetFields();
+  if (state.personId) await loadTargets();
   await Promise.all([loadBlueprints(), refreshDay(), loadMetrics()]);
   renderFoodTable();
-  if (state.forecast) { await loadForecast(); loadTargets(); loadHistory(); }
+  if (state.forecast) { await loadForecast(); loadHistory(); }
 }
 
 function syncUnitButtons() {
@@ -1489,10 +1503,10 @@ function bindEvents() {
         (r) => r.effective_on === edit.dataset.editTarget);
       if (!row) return;
       $("#t-effective").value = row.effective_on;
-      for (const n of ["energy", ...FOOD_FIELDS]) {
-        $("#t-" + n).value =
-          row[n] === null || row[n] === undefined ? "" : fmtRaw(row[n], 1);
-      }
+for (const n of ["energy", ...FOOD_FIELDS]) {
+          const v = row[n];   // already in the display unit
+          $("#t-" + n).value = v === null || v === undefined ? "" : fmtRaw(v, 1);
+        }
       $("#targets-msg").textContent =
         `Editing the set effective ${row.effective_on}. Save to replace it.`;
       $("#targets-msg").className = "hint";
